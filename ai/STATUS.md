@@ -9,6 +9,7 @@
 - [x] CLI skeleton with all commands
 - [x] Skills file
 - [x] Design documentation
+- [x] Renamed from `job` to `jb` (crate name conflict)
 
 ## In Progress
 
@@ -29,10 +30,10 @@
 
 ## Known Issues
 
-- `job run` creates job in DB but doesn't execute (no daemon)
-- `job stop` attempts direct kill but daemon should handle this
-- `job logs --follow` not implemented
-- `job run --wait` not implemented
+- `jb run` creates job in DB but doesn't execute (no daemon)
+- `jb stop` attempts direct kill but daemon should handle this
+- `jb logs --follow` not implemented
+- `jb run --wait` not implemented
 
 ## Next Steps
 

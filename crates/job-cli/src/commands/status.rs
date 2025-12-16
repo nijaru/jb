@@ -1,5 +1,5 @@
 use anyhow::Result;
-use job_core::{detect_project, Database, Paths, Status};
+use jb_core::{detect_project, Database, Paths, Status};
 use std::env;
 
 pub async fn execute(id: Option<String>, json: bool) -> Result<()> {

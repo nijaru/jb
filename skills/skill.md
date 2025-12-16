@@ -1,6 +1,6 @@
-# job - Background Job Manager
+# jb - Background Job Manager
 
-Use `job` to run tasks that should:
+Use `jb` to run tasks that should:
 
 - Survive session end
 - Run longer than 30 seconds
@@ -8,105 +8,105 @@ Use `job` to run tasks that should:
 
 ## Quick Reference
 
-| Command           | Purpose              |
-| ----------------- | -------------------- |
-| `job run "cmd"`   | Start background job |
-| `job list`        | List project jobs    |
-| `job status <id>` | Job details          |
-| `job status`      | System status        |
-| `job logs <id>`   | View output          |
-| `job stop <id>`   | Stop a job           |
-| `job wait <id>`   | Block until done     |
-| `job retry <id>`  | Re-run a job         |
-| `job clean`       | Remove old jobs      |
+| Command          | Purpose              |
+| ---------------- | -------------------- |
+| `jb run "cmd"`   | Start background job |
+| `jb list`        | List project jobs    |
+| `jb status <id>` | Job details          |
+| `jb status`      | System status        |
+| `jb logs <id>`   | View output          |
+| `jb stop <id>`   | Stop a job           |
+| `jb wait <id>`   | Block until done     |
+| `jb retry <id>`  | Re-run a job         |
+| `jb clean`       | Remove old jobs      |
 
 ## Starting Jobs
 
 ```bash
 # Basic usage - returns job ID immediately
-job run "pytest tests/"
+jb run "pytest tests/"
 
 # With name for easy reference
-job run "make build" --name build
+jb run "make build" --name build
 
 # With timeout
-job run "npm test" --timeout 30m
+jb run "npm test" --timeout 30m
 
 # With context metadata (for your own tracking)
-job run "deploy.sh" --context '{"pr": 123, "env": "staging"}'
+jb run "deploy.sh" --context '{"pr": 123, "env": "staging"}'
 
 # Idempotent - won't create duplicate if key exists
-job run "pytest" --key "test-$(git rev-parse HEAD)"
+jb run "pytest" --key "test-$(git rev-parse HEAD)"
 
 # Wait for completion (blocks)
-job run "pytest" --wait
+jb run "pytest" --wait
 ```
 
 ## Listing Jobs
 
 ```bash
 # List jobs for current project (default)
-job list
+jb list
 
 # List all jobs across all projects
-job list --all
+jb list --all
 
 # Filter by status
-job list --status running
-job list --status failed
+jb list --status running
+jb list --status failed
 
 # JSON output for parsing
-job list --json
+jb list --json
 ```
 
 ## Checking Status
 
 ```bash
 # System status (no ID)
-job status
+jb status
 
 # Job details
-job status abc123
-job status build  # by name if unique
+jb status abc123
+jb status build  # by name if unique
 
 # JSON output
-job status abc123 --json
+jb status abc123 --json
 ```
 
 ## Viewing Logs
 
 ```bash
 # Full output
-job logs abc123
+jb logs abc123
 
 # Last 50 lines (default with --tail)
-job logs abc123 --tail
+jb logs abc123 --tail
 
 # Last N lines
-job logs abc123 --tail 100
+jb logs abc123 --tail 100
 
 # Stream live output (follow mode)
-job logs abc123 --follow
+jb logs abc123 --follow
 ```
 
 ## Stopping Jobs
 
 ```bash
 # Graceful stop (SIGTERM)
-job stop abc123
+jb stop abc123
 
 # Force kill (SIGKILL)
-job stop abc123 --force
+jb stop abc123 --force
 ```
 
 ## Waiting for Completion
 
 ```bash
 # Block until job finishes
-job wait abc123
+jb wait abc123
 
 # With timeout
-job wait abc123 --timeout 5m
+jb wait abc123 --timeout 5m
 ```
 
 Exit codes:
@@ -120,41 +120,41 @@ Exit codes:
 ### Fire and Forget
 
 ```bash
-job run "make build" --name build
+jb run "make build" --name build
 # Continue with other work...
 ```
 
 ### Run Multiple in Parallel
 
 ```bash
-job run "npm test" --name tests
-job run "npm run lint" --name lint
-job run "npm run typecheck" --name types
+jb run "npm test" --name tests
+jb run "npm run lint" --name lint
+jb run "npm run typecheck" --name types
 
 # Check results later
-job list
+jb list
 ```
 
 ### Wait for Multiple Jobs
 
 ```bash
-job wait tests && job wait lint && job wait types
+jb wait tests && jb wait lint && jb wait types
 ```
 
 ### Check Project Jobs After Break
 
 ```bash
 # See what's running/completed in this project
-job list
+jb list
 
 # Check specific job output
-job logs <id> --tail
+jb logs <id> --tail
 ```
 
 ### Retry Failed Job
 
 ```bash
-job retry abc123
+jb retry abc123
 # Creates new job with same command/config
 ```
 
@@ -166,7 +166,7 @@ job retry abc123
 
 ## Storage
 
-Jobs are stored in `~/.job/`:
+Jobs are stored in `~/.jb/`:
 
 - `job.db` - SQLite database
 - `logs/` - Job output files
@@ -174,7 +174,7 @@ Jobs are stored in `~/.job/`:
 Clean up old jobs:
 
 ```bash
-job clean                    # Remove jobs older than 7 days
-job clean --older-than 1d    # Custom retention
-job clean --all              # Remove all non-running jobs
+jb clean                    # Remove jobs older than 7 days
+jb clean --older-than 1d    # Custom retention
+jb clean --all              # Remove all non-running jobs
 ```

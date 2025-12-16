@@ -1,5 +1,5 @@
 use anyhow::Result;
-use job_core::{Database, Paths, Status};
+use jb_core::{Database, Paths, Status};
 
 pub async fn execute(id: String, force: bool, json: bool) -> Result<()> {
     let paths = Paths::new();

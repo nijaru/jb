@@ -1,10 +1,10 @@
-# job
+# jb
 
 Background job manager for AI agents.
 
 ## Overview
 
-`job` is an OS-agnostic CLI for managing long-running background tasks, designed specifically for AI agents. It allows agents to spawn tasks that survive session end, run in parallel, and be monitored from any context.
+`jb` is an OS-agnostic CLI for managing long-running background tasks, designed specifically for AI agents. It allows agents to spawn tasks that survive session end, run in parallel, and be monitored from any context.
 
 ## Installation
 
@@ -16,58 +16,58 @@ cargo install --path crates/job-cli
 
 ```bash
 # Start a background job
-job run "make build"
+jb run "make build"
 
 # List jobs in current project
-job list
+jb list
 
 # Check job status
-job status abc123
+jb status abc123
 
 # View job output
-job logs abc123 --tail
+jb logs abc123 --tail
 
 # Stop a job
-job stop abc123
+jb stop abc123
 ```
 
 ## Commands
 
-| Command              | Purpose                     |
-| -------------------- | --------------------------- |
-| `job run <cmd>`      | Start background job        |
-| `job list`           | List jobs (current project) |
-| `job status [<id>]`  | Job or system status        |
-| `job logs <id>`      | View output                 |
-| `job stop <id>`      | Stop job                    |
-| `job wait <id>`      | Block until done            |
-| `job retry <id>`     | Re-run job                  |
-| `job clean`          | Remove old jobs             |
-| `job skills install` | Install Claude skills       |
+| Command             | Purpose                     |
+| ------------------- | --------------------------- |
+| `jb run <cmd>`      | Start background job        |
+| `jb list`           | List jobs (current project) |
+| `jb status [<id>]`  | Job or system status        |
+| `jb logs <id>`      | View output                 |
+| `jb stop <id>`      | Stop job                    |
+| `jb wait <id>`      | Block until done            |
+| `jb retry <id>`     | Re-run job                  |
+| `jb clean`          | Remove old jobs             |
+| `jb skills install` | Install Claude skills       |
 
 ## Agent Integration
 
 Install skills for Claude Code:
 
 ```bash
-job skills install
+jb skills install
 ```
 
-This installs documentation to `~/.claude/skills/job/` that teaches Claude how to use `job`.
+This installs documentation to `~/.claude/skills/jb/` that teaches Claude how to use `jb`.
 
 ## Storage
 
-All data stored in `~/.job/`:
+All data stored in `~/.jb/`:
 
 ```
-~/.job/
+~/.jb/
 ├── job.db        # SQLite database
 ├── logs/         # Job output files
 ├── daemon.sock   # IPC socket
 └── daemon.pid    # Daemon PID
 ```
 
-Clean up: `rm -rf ~/.job/`
+Clean up: `rm -rf ~/.jb/`
 
 ## Status
 

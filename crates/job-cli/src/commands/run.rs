@@ -1,5 +1,5 @@
 use anyhow::Result;
-use job_core::{detect_project, Database, Job, Paths};
+use jb_core::{detect_project, Database, Job, Paths};
 use std::env;
 
 pub async fn execute(

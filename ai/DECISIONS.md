@@ -1,5 +1,20 @@
 # Decisions
 
+## 2024-12-16: Renamed from `job` to `jb`
+
+**Context**: Crate name `job` already exists on crates.io.
+
+**Decision**: Rename to `jb`
+
+**Rationale**:
+
+- Short, fast to type (2 chars)
+- No crate conflict
+- Unix philosophy of short commands
+- Binary: `jb`, Directory: `~/.jb/`, Skills: `~/.claude/skills/jb/`
+
+---
+
 ## 2024-12-16: Single directory over XDG
 
 **Context**: Where to store job state, logs, config?
@@ -7,14 +22,14 @@
 **Options**:
 
 1. XDG paths (scatter across ~/.local/share, ~/.config, ~/.local/state, /run)
-2. Single directory (~/.job/)
+2. Single directory (~/.jb/)
 
-**Decision**: Single directory `~/.job/`
+**Decision**: Single directory `~/.jb/`
 
 **Rationale**:
 
-- Easy to discover: `ls ~/.job/`
-- Easy to clean: `rm -rf ~/.job/`
+- Easy to discover: `ls ~/.jb/`
+- Easy to clean: `rm -rf ~/.jb/`
 - Precedent: cargo, rustup, docker all use single dotdir
 - XDG is "correct" but user-hostile for simple tools
 
@@ -24,13 +39,13 @@
 
 **Context**: How to handle multiple projects running jobs in parallel?
 
-**Decision**: Auto-detect project via git root, `job list` shows current project by default.
+**Decision**: Auto-detect project via git root, `jb list` shows current project by default.
 
 **Rationale**:
 
 - Agents often work within a project context
 - Avoids confusion when running multiple Claude instances
-- `job list --all` available for cross-project view
+- `jb list --all` available for cross-project view
 - No config needed - detection is automatic
 
 ---
@@ -52,7 +67,7 @@
 
 ## 2024-12-16: Skills over MCP for agent integration
 
-**Context**: How should agents learn to use `job`?
+**Context**: How should agents learn to use `jb`?
 
 **Decision**: Skills (markdown) as primary, MCP as future enhancement.
 
@@ -100,10 +115,10 @@
 
 **Context**: Should users run a setup command?
 
-**Decision**: No init. Auto-create ~/.job/ on first use.
+**Decision**: No init. Auto-create ~/.jb/ on first use.
 
 **Rationale**:
 
 - Zero friction for first use
 - Agents can't handle prompts
-- `job skills install` is the only setup command (opt-in)
+- `jb skills install` is the only setup command (opt-in)

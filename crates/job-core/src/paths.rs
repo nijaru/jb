@@ -8,7 +8,7 @@ impl Paths {
     pub fn new() -> Self {
         let root = dirs::home_dir()
             .expect("could not determine home directory")
-            .join(".job");
+            .join(".jb");
         Self { root }
     }
 

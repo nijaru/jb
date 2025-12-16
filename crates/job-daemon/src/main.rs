@@ -1,5 +1,5 @@
 use anyhow::Result;
-use job_core::Paths;
+use jb_core::Paths;
 use tracing::info;
 
 #[tokio::main]

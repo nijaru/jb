@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "job")]
+#[command(name = "jb")]
 #[command(about = "Background job manager for AI agents", long_about = None)]
 #[command(version)]
 struct Cli {

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use job_core::{Database, Paths};
+use jb_core::{Database, Paths};
 use std::time::{Duration, Instant};
 
 pub async fn execute(id: String, timeout: Option<String>) -> Result<()> {

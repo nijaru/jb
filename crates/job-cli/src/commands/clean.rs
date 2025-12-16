@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::Utc;
-use job_core::{Database, Paths, Status};
+use jb_core::{Database, Paths, Status};
 
 pub async fn execute(older_than: String, status: Option<String>, all: bool) -> Result<()> {
     let paths = Paths::new();

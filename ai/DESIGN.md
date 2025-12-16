@@ -1,4 +1,4 @@
-# job - Background Job Manager for AI Agents
+# jb - Background Job Manager for AI Agents
 
 ## Overview
 
@@ -8,13 +8,13 @@ OS-agnostic background job framework designed for AI agents to manage long-runni
 
 ```
 ┌─────────────┐     IPC      ┌─────────────┐     fork/exec    ┌─────────────┐
-│   job CLI   │◄────────────►│   jobd      │────────────────►│  job process │
+│   jb CLI    │◄────────────►│    jbd      │────────────────►│  job process │
 └─────────────┘   Unix sock  └─────────────┘    (detached)   └─────────────┘
        │                            │
        │                            │
        ▼                            ▼
 ┌─────────────────────────────────────────┐
-│              ~/.job/                     │
+│               ~/.jb/                     │
 │  ├── job.db        (SQLite)             │
 │  ├── logs/         (job output)         │
 │  ├── daemon.sock   (IPC)                │
@@ -27,8 +27,8 @@ OS-agnostic background job framework designed for AI agents to manage long-runni
 | Principle      | Implementation                                                   |
 | -------------- | ---------------------------------------------------------------- |
 | Agent-first    | JSON output, non-interactive, idempotent operations              |
-| Zero-config    | Auto-creates ~/.job/ on first use, sensible defaults             |
-| Project-scoped | Jobs tagged with git root, `job list` shows current project      |
+| Zero-config    | Auto-creates ~/.jb/ on first use, sensible defaults              |
+| Project-scoped | Jobs tagged with git root, `jb list` shows current project       |
 | Reliable       | SQLite for state, daemon monitors processes, recovery on restart |
 | Cross-platform | macOS, Linux, Windows (via Rust)                                 |
 
@@ -64,24 +64,24 @@ enum Status {
 
 ## CLI Commands
 
-| Command              | Purpose                     |
-| -------------------- | --------------------------- |
-| `job run <cmd>`      | Start background job        |
-| `job list`           | List jobs (current project) |
-| `job status [<id>]`  | Job or system status        |
-| `job logs <id>`      | View output                 |
-| `job stop <id>`      | Stop job                    |
-| `job wait <id>`      | Block until done            |
-| `job retry <id>`     | Re-run job                  |
-| `job clean`          | Remove old jobs             |
-| `job skills install` | Install Claude skills       |
+| Command             | Purpose                     |
+| ------------------- | --------------------------- |
+| `jb run <cmd>`      | Start background job        |
+| `jb list`           | List jobs (current project) |
+| `jb status [<id>]`  | Job or system status        |
+| `jb logs <id>`      | View output                 |
+| `jb stop <id>`      | Stop job                    |
+| `jb wait <id>`      | Block until done            |
+| `jb retry <id>`     | Re-run job                  |
+| `jb clean`          | Remove old jobs             |
+| `jb skills install` | Install Claude skills       |
 
 ## Process Lifecycle
 
-1. `job run "cmd"` sends request to daemon via IPC
+1. `jb run "cmd"` sends request to daemon via IPC
 2. Daemon spawns process with `setsid()` (new session, detached)
 3. Daemon monitors via PID polling
-4. Output captured to `~/.job/logs/<id>.log`
+4. Output captured to `~/.jb/logs/<id>.log`
 5. On completion, daemon updates DB with exit code
 
 ### Daemon Crash Recovery
@@ -104,12 +104,12 @@ fn detect_project(cwd: &Path) -> PathBuf {
 }
 ```
 
-- `job list` defaults to current project
-- `job list --all` shows everything
+- `jb list` defaults to current project
+- `jb list --all` shows everything
 
 ## Storage
 
-Single directory: `~/.job/`
+Single directory: `~/.jb/`
 
 | File            | Purpose         |
 | --------------- | --------------- |
@@ -124,7 +124,7 @@ No XDG scatter - easy to find, easy to clean.
 
 Primary: **Skills** (portable markdown documentation)
 
-- `job skills install` → `~/.claude/skills/job/skill.md`
+- `jb skills install` → `~/.claude/skills/jb/skill.md`
 - Works with Claude Code, Cursor, others adopting skills convention
 
 Secondary: Good `--help` output as fallback.

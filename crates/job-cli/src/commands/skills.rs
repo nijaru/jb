@@ -14,7 +14,7 @@ pub async fn execute(action: Option<SkillsAction>) -> Result<()> {
 
 fn get_skills_dir() -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
-    Ok(home.join(".claude").join("skills").join("job"))
+    Ok(home.join(".claude").join("skills").join("jb"))
 }
 
 fn install_skills(skills_dir: &PathBuf) -> Result<()> {

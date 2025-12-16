@@ -1,5 +1,5 @@
 use anyhow::Result;
-use job_core::{Database, Paths};
+use jb_core::{Database, Paths};
 use std::io::{BufRead, BufReader};
 
 pub async fn execute(id: String, tail: Option<usize>, follow: bool) -> Result<()> {
