@@ -37,8 +37,8 @@ pub async fn execute(
     }
 
     println!(
-        "{:<10} {:<12} {:<12} {:<30} {}",
-        "ID", "STATUS", "NAME", "COMMAND", "STARTED"
+        "{:<10} {:<12} {:<12} {:<30} STARTED",
+        "ID", "STATUS", "NAME", "COMMAND"
     );
 
     for job in jobs {
@@ -50,7 +50,7 @@ pub async fn execute(
         };
         let started = job
             .started_at
-            .map(|t| format_relative_time(t))
+            .map(format_relative_time)
             .unwrap_or_else(|| "-".to_string());
 
         println!(

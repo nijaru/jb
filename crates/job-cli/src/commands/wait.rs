@@ -67,12 +67,11 @@ pub async fn execute(id: String, timeout: Option<String>) -> Result<()> {
             return handle_terminal(&current);
         }
 
-        if let Some(timeout_secs) = timeout_secs {
-            if start.elapsed() > Duration::from_secs(timeout_secs) {
+        if let Some(timeout_secs) = timeout_secs
+            && start.elapsed() > Duration::from_secs(timeout_secs) {
                 eprintln!("Timeout - job still running");
                 std::process::exit(124);
             }
-        }
 
         tokio::time::sleep(Duration::from_millis(500)).await;
     }

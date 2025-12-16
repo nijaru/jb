@@ -152,8 +152,8 @@ async fn monitor_job(state: &Arc<DaemonState>, job_id: &str, timeout_secs: Optio
         }
 
         // Check timeout
-        if let Some(t) = timeout {
-            if start.elapsed() >= t {
+        if let Some(t) = timeout
+            && start.elapsed() >= t {
                 // Kill the process on timeout
                 let mut running = state.running_jobs.lock().unwrap();
                 if let Some(job) = running.get_mut(job_id) {
@@ -161,7 +161,6 @@ async fn monitor_job(state: &Arc<DaemonState>, job_id: &str, timeout_secs: Optio
                 }
                 break None;
             }
-        }
 
         tokio::time::sleep(Duration::from_millis(100)).await;
     };
@@ -218,7 +217,7 @@ pub async fn stop_job(state: &Arc<DaemonState>, job_id: &str, force: bool) -> Re
     let kill_result = if force {
         job.child.kill().await
     } else {
-        job.child.start_kill().map_err(|e| e.into())
+        job.child.start_kill()
     };
 
     if let Err(e) = kill_result {
@@ -262,11 +261,10 @@ pub async fn wait_for_job(
         }
 
         // Check timeout
-        if let Some(t) = timeout {
-            if start.elapsed() >= t {
+        if let Some(t) = timeout
+            && start.elapsed() >= t {
                 return Response::Error("Wait timed out".to_string());
             }
-        }
 
         // Poll interval
         tokio::time::sleep(Duration::from_millis(100)).await;
