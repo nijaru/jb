@@ -3,6 +3,8 @@ name = "jb-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Core library for jb background job manager"
 
 [dependencies]
 anyhow.workspace = true

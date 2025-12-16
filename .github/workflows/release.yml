@@ -1,0 +1,145 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Build only, don't publish"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Check not already published
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+
+          # Check jb-core (main crate)
+          CRATES_V=$(curl -sf https://crates.io/api/v1/crates/jb-core | jq -r '.versions[0].num' 2>/dev/null || echo "0.0.0")
+          echo "Published jb-core version: $CRATES_V"
+
+          if [ "$VERSION" = "$CRATES_V" ]; then
+            echo "ERROR: Version $VERSION already published to crates.io"
+            exit 1
+          fi
+
+          echo "Version $VERSION is new - proceeding"
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Build
+        run: cargo build --release
+
+  build:
+    name: Build (${{ matrix.target }})
+    needs: [verify]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            cross: true
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: macos-latest
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build (native)
+        if: ${{ !matrix.cross }}
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build (cross)
+        if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Package binaries
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/jb dist/jb-${{ matrix.target }} 2>/dev/null || true
+          cp target/${{ matrix.target }}/release/jbd dist/jbd-${{ matrix.target }} 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish to crates.io
+    needs: [verify, build]
+    if: ${{ !inputs.dry-run }}
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - name: Get crates.io token via OIDC
+        uses: rust-lang/crates-io-auth-action@v1
+        id: crates-io-auth
+
+      - name: Publish jb-core
+        run: cargo publish -p jb-core --token ${{ steps.crates-io-auth.outputs.token }}
+
+      - name: Wait for index update
+        run: sleep 30
+
+      - name: Publish jbd
+        run: cargo publish -p jbd --token ${{ steps.crates-io-auth.outputs.token }}
+
+      - name: Wait for index update
+        run: sleep 30
+
+      - name: Publish jb-cli
+        run: cargo publish -p jb-cli --token ${{ steps.crates-io-auth.outputs.token }}
