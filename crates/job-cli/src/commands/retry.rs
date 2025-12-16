@@ -1,5 +1,7 @@
+use crate::client::DaemonClient;
 use anyhow::Result;
-use jb_core::{Database, Job, Paths};
+use jb_core::ipc::{Request, Response};
+use jb_core::{Database, Paths};
 
 pub async fn execute(id: String, json: bool) -> Result<()> {
     let paths = Paths::new();
@@ -24,29 +26,29 @@ pub async fn execute(id: String, json: bool) -> Result<()> {
         }
     };
 
-    let mut new_job = Job::new(job.command.clone(), job.cwd.clone(), job.project.clone());
+    // Send to daemon
+    let mut client = DaemonClient::connect_or_start().await?;
 
-    if let Some(name) = &job.name {
-        new_job = new_job.with_name(name.clone());
+    let request = Request::Run {
+        command: job.command.clone(),
+        name: job.name.clone(),
+        cwd: job.cwd.to_string_lossy().to_string(),
+        project: job.project.to_string_lossy().to_string(),
+        timeout_secs: job.timeout_secs,
+        context: job.context.clone(),
+        idempotency_key: None, // Don't reuse idempotency key
+    };
+
+    match client.send(request).await? {
+        Response::Job(new_job) => {
+            if json {
+                println!("{}", serde_json::to_string(&new_job)?);
+            } else {
+                println!("{}", new_job.short_id());
+            }
+            Ok(())
+        }
+        Response::Error(e) => anyhow::bail!("{}", e),
+        _ => anyhow::bail!("Unexpected response from daemon"),
     }
-
-    if let Some(timeout) = job.timeout_secs {
-        new_job = new_job.with_timeout(timeout);
-    }
-
-    if let Some(ctx) = &job.context {
-        new_job = new_job.with_context(ctx.clone());
-    }
-
-    db.insert(&new_job)?;
-
-    // TODO: Send to daemon for execution
-
-    if json {
-        println!("{}", serde_json::to_string(&new_job)?);
-    } else {
-        println!("{}", new_job.short_id());
-    }
-
-    Ok(())
 }

@@ -1,10 +1,13 @@
+use crate::client::DaemonClient;
 use anyhow::Result;
+use jb_core::ipc::{Request, Response};
 use jb_core::{Database, Paths, Status};
 
 pub async fn execute(id: String, force: bool, json: bool) -> Result<()> {
     let paths = Paths::new();
     let db = Database::open(&paths)?;
 
+    // Resolve job ID/name
     let job = db.get(&id)?;
     let job = match job {
         Some(j) => j,
@@ -33,8 +36,34 @@ pub async fn execute(id: String, force: bool, json: bool) -> Result<()> {
         return Ok(());
     }
 
-    // TODO: Send stop signal to daemon
-    // For now, just update the database
+    // Try to stop via daemon
+    if let Ok(mut client) = DaemonClient::connect_or_start().await {
+        let request = Request::Stop {
+            id: job.id.clone(),
+            force,
+        };
+
+        match client.send(request).await? {
+            Response::Ok => {
+                if json {
+                    let updated = db.get(&job.id)?.unwrap();
+                    println!("{}", serde_json::to_string(&updated)?);
+                } else {
+                    println!("Stopped {}", job.short_id());
+                }
+                return Ok(());
+            }
+            Response::Error(e) => {
+                // Job might not be running in daemon, fall back to direct kill
+                if !e.contains("not running") {
+                    anyhow::bail!("{}", e);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Fallback: direct kill (for jobs started before daemon)
     if job.status == Status::Pending {
         db.update_status(&job.id, Status::Stopped)?;
     } else if let Some(pid) = job.pid {
@@ -69,6 +98,5 @@ fn kill_process(pid: u32, force: bool) -> Result<()> {
 
 #[cfg(not(unix))]
 fn kill_process(_pid: u32, _force: bool) -> Result<()> {
-    // TODO: Implement Windows process termination
     anyhow::bail!("Process termination not yet implemented on this platform")
 }
