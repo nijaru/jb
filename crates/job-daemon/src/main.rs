@@ -1,5 +1,10 @@
+mod server;
+mod spawner;
+mod state;
+
 use anyhow::Result;
 use jb_core::Paths;
+use std::sync::Arc;
 use tracing::info;
 
 #[tokio::main]
@@ -18,14 +23,22 @@ async fn main() -> Result<()> {
     info!("Socket: {}", paths.socket().display());
     info!("Database: {}", paths.database().display());
 
-    // TODO: Implement daemon
-    // - Listen on Unix socket
-    // - Handle IPC requests
-    // - Spawn and monitor jobs
-    // - Auto-clean old jobs on startup
-    // - Recover orphaned jobs
+    let state = Arc::new(state::DaemonState::new(&paths)?);
 
-    eprintln!("Daemon not yet implemented");
+    // Write PID file
+    std::fs::write(paths.pid_file(), std::process::id().to_string())?;
 
-    Ok(())
+    // Clean up stale socket
+    if paths.socket().exists() {
+        std::fs::remove_file(paths.socket())?;
+    }
+
+    // Run the server
+    let result = server::run(paths, state.clone()).await;
+
+    // Cleanup
+    let _ = std::fs::remove_file(Paths::new().pid_file());
+    let _ = std::fs::remove_file(Paths::new().socket());
+
+    result
 }

@@ -1,6 +1,6 @@
 # Status
 
-**Phase**: CLI scaffolding complete, daemon not implemented
+**Phase**: Core daemon implemented, ready for testing
 
 ## Completed
 
@@ -12,37 +12,42 @@
 - [x] Renamed from `job` to `jb` (crate name conflict)
 - [x] GitHub repo: github.com/nijaru/jb
 - [x] Beads initialized with tasks
+- [x] **Daemon IPC listener** - Unix socket server accepting connections
+- [x] **Job spawning with process groups** - `setsid()` equivalent via `process_group(0)`
+- [x] **Process monitoring loop** - Polls `try_wait()`, handles timeout
+- [x] **CLI daemon communication** - `jb run` talks to daemon when running
 
 ## What Works
 
-- `jb run "cmd"` - creates job in DB, returns ID
+- `jb run "cmd"` - sends to daemon if running, falls back to DB-only mode
 - `jb list` - shows jobs for current project
 - `jb status <id>` - shows job details
-- `jb status` - shows system status
+- `jb status` - shows system status (daemon state)
 - `jb clean` - removes old jobs from DB
+- `jbd` - daemon that executes jobs, captures output to `~/.jb/logs/<id>.log`
 
-## What Doesn't Work Yet
+## What Needs Testing/Polish
 
-- Jobs stay `pending` forever (daemon not executing them)
-- `jb stop` - can't kill without daemon tracking PID
-- `jb logs` - no logs since jobs don't run
-- `jb wait` - polls DB but job never completes
-- `jb run --wait` - not wired up
-
-## Next Steps
-
-See `bd list` for tasks:
-
-1. **job-390**: Implement daemon IPC listener (P1)
-2. **job-pa2**: Implement job spawning with process groups (P1)
-3. **job-2nv**: Implement process monitoring loop (P2)
-4. **job-a2m**: Wire CLI to daemon communication (P2)
+- `jb run --wait` - wait for job completion
+- `jb stop` - stop running job (uses `start_kill()`)
+- `jb logs` - view job output
+- `jb wait` - wait for existing job
+- Timeout handling
+- Error recovery (orphaned jobs)
 
 ## Build & Test
 
 ```bash
 cargo build --release
-./target/release/jb --help
-./target/release/jb run "echo test" --name test
+
+# Start daemon
+./target/release/jbd &
+
+# Run a job
+./target/release/jb run "echo hello" --name test
 ./target/release/jb list
+./target/release/jb status
+
+# View output
+cat ~/.jb/logs/<job-id>.log
 ```
