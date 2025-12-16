@@ -1,14 +1,28 @@
 ---
 name: jb
-description: Background job manager for long-running commands. Use when running builds, tests, deployments, or any command >30s that should survive session disconnect.
+description: >
+  Background job manager for long-running commands.
+  Triggers on: "run in background", "takes a while", "long running",
+  builds >30s, test suites, deployments, dev servers, anything that
+  should survive session disconnect.
+allowed-tools: Bash(command:jb*)
 ---
 
 # jb
 
+Background job manager. Use instead of raw bash for commands >30s.
+
+## Triggers
+
+- "run this in background", "this takes a while"
+- "start the build", "run the tests" (when known to be slow)
+- "start dev server", "run watch mode"
+- Long-running deployments, migrations
+- Any command that should survive disconnect
+
 ## Decision
 
-Use `jb run` instead of bash when:
-
+Use `jb run` when:
 - Command takes >30 seconds
 - Process should survive session disconnect
 - Running multiple tasks in parallel
@@ -23,7 +37,7 @@ jb run "cmd"                    # Start, returns ID immediately
 jb run "cmd" --wait             # Start and block
 jb run "cmd" --name build       # Named reference
 jb run "cmd" --timeout 30m      # With timeout
-jb run "cmd" --key "unique"     # Idempotent
+jb run "cmd" --key "unique"     # Idempotent (won't duplicate)
 
 jb list                         # Current project jobs
 jb list --all                   # All projects

@@ -2,7 +2,7 @@ use crate::SkillsAction;
 use anyhow::Result;
 use std::path::PathBuf;
 
-const SKILL_CONTENT: &str = include_str!("../../skills/skill.md");
+const SKILL_CONTENT: &str = include_str!("../../skills/SKILL.md");
 
 pub async fn execute(action: Option<SkillsAction>) -> Result<()> {
     match action {
@@ -32,7 +32,7 @@ fn get_default_skills_dir() -> PathBuf {
 fn install_skills(skills_dir: &PathBuf) -> Result<()> {
     std::fs::create_dir_all(skills_dir)?;
 
-    let skill_path = skills_dir.join("skill.md");
+    let skill_path = skills_dir.join("SKILL.md");
     std::fs::write(&skill_path, SKILL_CONTENT)?;
 
     let display_path = if skill_path.starts_with(dirs::home_dir().unwrap_or_default()) {
