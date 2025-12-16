@@ -132,7 +132,7 @@ async fn handle_request(request: Request, state: &Arc<DaemonState>) -> Response 
         },
 
         Request::Status { id } => match state.get_job(&id) {
-            Ok(Some(job)) => Response::Job(job),
+            Ok(Some(job)) => Response::Job(Box::new(job)),
             Ok(None) => Response::Error(format!("Job not found: {id}")),
             Err(e) => Response::Error(e.to_string()),
         },

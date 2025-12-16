@@ -33,7 +33,7 @@ pub enum Request {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Response {
-    Job(Job),
+    Job(Box<Job>),
     Jobs(Vec<Job>),
     Ok,
     Error(String),

@@ -26,7 +26,7 @@ pub async fn spawn_job(
     if let Some(ref key) = idempotency_key {
         let db = state.db.lock().unwrap();
         if let Ok(Some(existing)) = db.get_by_idempotency_key(key) {
-            return Response::Job(existing);
+            return Response::Job(Box::new(existing));
         }
     }
 
@@ -69,7 +69,7 @@ pub async fn spawn_job(
     });
 
     // Return the job (still pending, will update to running shortly)
-    Response::Job(job)
+    Response::Job(Box::new(job))
 }
 
 async fn run_job(
@@ -260,7 +260,7 @@ pub async fn wait_for_job(
         match state.get_job(job_id) {
             Ok(Some(job)) => {
                 if job.status.is_terminal() {
-                    return Response::Job(job);
+                    return Response::Job(Box::new(job));
                 }
             }
             Ok(None) => return Response::Error(format!("Job not found: {job_id}")),
