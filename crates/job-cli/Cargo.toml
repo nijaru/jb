@@ -1,10 +1,10 @@
 [package]
-name = "jb-cli"
+name = "jb"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "CLI for jb background job manager"
+description = "Background job manager for AI agents"
 
 [[bin]]
 name = "jb"

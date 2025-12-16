@@ -141,5 +141,5 @@ jobs:
       - name: Wait for index update
         run: sleep 30
 
-      - name: Publish jb-cli
-        run: cargo publish -p jb-cli --token ${{ steps.crates-io-auth.outputs.token }}
+      - name: Publish jb
+        run: cargo publish -p jb --token ${{ steps.crates-io-auth.outputs.token }}
