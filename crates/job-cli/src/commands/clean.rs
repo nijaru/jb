@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::Utc;
-use jb_core::{Database, Paths, Status};
+use jb_core::{Database, Paths, Status, parse_duration};
 
 pub async fn execute(older_than: String, status: Option<String>, all: bool) -> Result<()> {
     let paths = Paths::new();
@@ -40,20 +40,3 @@ pub async fn execute(older_than: String, status: Option<String>, all: bool) -> R
     Ok(())
 }
 
-fn parse_duration(s: &str) -> Result<u64> {
-    let s = s.trim();
-    let (num, unit) = if let Some(n) = s.strip_suffix('s') {
-        (n, 1u64)
-    } else if let Some(n) = s.strip_suffix('m') {
-        (n, 60u64)
-    } else if let Some(n) = s.strip_suffix('h') {
-        (n, 3600u64)
-    } else if let Some(n) = s.strip_suffix('d') {
-        (n, 86400u64)
-    } else {
-        anyhow::bail!("Invalid duration format. Use: 30s, 5m, 1h, 7d");
-    };
-
-    let n: u64 = num.parse()?;
-    Ok(n * unit)
-}

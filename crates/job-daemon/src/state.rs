@@ -23,7 +23,7 @@ impl DaemonState {
 
         Ok(Self {
             db: Mutex::new(db),
-            paths: Paths::new(),
+            paths: paths.clone(),
             started_at: Instant::now(),
             running_jobs: Mutex::new(HashMap::new()),
         })

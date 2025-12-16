@@ -8,3 +8,22 @@ pub use db::Database;
 pub use job::{Job, Status};
 pub use paths::Paths;
 pub use project::detect_project;
+
+/// Parse a duration string like "30s", "5m", "1h", "7d" into seconds
+pub fn parse_duration(s: &str) -> anyhow::Result<u64> {
+    let s = s.trim();
+    let (num, unit) = if let Some(n) = s.strip_suffix('s') {
+        (n, 1u64)
+    } else if let Some(n) = s.strip_suffix('m') {
+        (n, 60u64)
+    } else if let Some(n) = s.strip_suffix('h') {
+        (n, 3600u64)
+    } else if let Some(n) = s.strip_suffix('d') {
+        (n, 86400u64)
+    } else {
+        anyhow::bail!("Invalid duration format. Use: 30s, 5m, 1h, 7d");
+    };
+
+    let n: u64 = num.parse()?;
+    Ok(n * unit)
+}

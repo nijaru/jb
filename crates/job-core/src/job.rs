@@ -97,6 +97,7 @@ impl Job {
         }
     }
 
+    #[must_use]
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
         self
@@ -114,6 +115,7 @@ impl Job {
         self
     }
 
+    #[must_use]
     pub fn with_idempotency_key(mut self, key: impl Into<String>) -> Self {
         self.idempotency_key = Some(key.into());
         self

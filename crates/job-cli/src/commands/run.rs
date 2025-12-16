@@ -1,7 +1,7 @@
 use crate::client::DaemonClient;
 use anyhow::Result;
 use jb_core::ipc::{Request, Response};
-use jb_core::{Paths, detect_project};
+use jb_core::{Paths, detect_project, parse_duration};
 use std::env;
 
 pub async fn execute(
@@ -88,20 +88,3 @@ async fn wait_for_job(client: &mut DaemonClient, job_id: &str, json: bool) -> Re
     }
 }
 
-fn parse_duration(s: &str) -> Result<u64> {
-    let s = s.trim();
-    let (num, unit) = if let Some(n) = s.strip_suffix('s') {
-        (n, 1u64)
-    } else if let Some(n) = s.strip_suffix('m') {
-        (n, 60u64)
-    } else if let Some(n) = s.strip_suffix('h') {
-        (n, 3600u64)
-    } else if let Some(n) = s.strip_suffix('d') {
-        (n, 86400u64)
-    } else {
-        anyhow::bail!("Invalid duration format. Use: 30s, 5m, 1h, 7d");
-    };
-
-    let n: u64 = num.parse()?;
-    Ok(n * unit)
-}
