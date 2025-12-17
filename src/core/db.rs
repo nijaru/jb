@@ -1,8 +1,8 @@
-use crate::core::job::{Job, Status};
 use crate::core::Paths;
-use anyhow::{bail, Result};
+use crate::core::job::{Job, Status};
+use anyhow::{Result, bail};
 use rand::Rng;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 use std::path::PathBuf;
 
 pub struct Database {
