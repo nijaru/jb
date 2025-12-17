@@ -1,7 +1,7 @@
 # Status
 
-**Version**: 0.0.2
-**Phase**: Core complete, published to crates.io
+**Version**: 0.0.2 (released)
+**Phase**: Published to crates.io
 
 ## What Works
 
@@ -22,12 +22,13 @@
 | Daemon recovery | Tested | Orphans marked interrupted |
 | PID locking     | Tested | Prevents multiple daemons  |
 
-## Recent Changes (v0.0.2)
+## v0.0.2 Changes
 
 - Short 4-char alphanumeric IDs (e.g., `a3x9`)
 - Orphan job recovery on daemon restart
 - Multiple daemon prevention via PID lock
-- Single crate with `jb daemon` subcommand
+- All clippy pedantic warnings fixed
+- README improved (standalone description, not nohup-dependent)
 
 ## Platforms
 
@@ -43,6 +44,6 @@
 
 ## Next Steps
 
-1. Update README with "modern nohup" positioning
-2. Real-world testing with Claude Code
-3. Consider job chaining (`--after <id>`)
+1. Real-world testing with Claude Code
+2. Consider job chaining (`--after <id>`)
+3. Add `--follow` for logs
