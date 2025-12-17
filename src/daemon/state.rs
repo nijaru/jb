@@ -4,6 +4,7 @@ use std::sync::Mutex;
 use std::time::Instant;
 use tokio::process::Child;
 use tokio::sync::oneshot;
+use tracing::warn;
 
 pub struct RunningJob {
     pub child: Child,
@@ -21,12 +22,34 @@ impl DaemonState {
     pub fn new(paths: &Paths) -> anyhow::Result<Self> {
         let db = Database::open(paths)?;
 
+        // Recover orphaned jobs from previous daemon crash
+        Self::recover_orphaned_jobs(&db);
+
         Ok(Self {
             db: Mutex::new(db),
             paths: paths.clone(),
             started_at: Instant::now(),
             running_jobs: Mutex::new(HashMap::new()),
         })
+    }
+
+    /// Mark any jobs stuck in "running" or "pending" state as interrupted.
+    /// These are orphans from a previous daemon that crashed.
+    fn recover_orphaned_jobs(db: &Database) {
+        let orphaned = db
+            .list(Some(Status::Running), None)
+            .unwrap_or_default()
+            .into_iter()
+            .chain(db.list(Some(Status::Pending), None).unwrap_or_default());
+
+        for job in orphaned {
+            warn!(
+                "Recovering orphaned job {} (was {})",
+                job.short_id(),
+                job.status
+            );
+            let _ = db.update_finished(&job.id, Status::Interrupted, None);
+        }
     }
 
     pub fn uptime_secs(&self) -> u64 {

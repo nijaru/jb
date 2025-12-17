@@ -25,10 +25,10 @@ pub async fn spawn_job(
     // Check idempotency key and generate ID
     let id = {
         let db = state.db.lock().unwrap();
-        if let Some(ref key) = idempotency_key {
-            if let Ok(Some(existing)) = db.get_by_idempotency_key(key) {
-                return Response::Job(Box::new(existing));
-            }
+        if let Some(ref key) = idempotency_key
+            && let Ok(Some(existing)) = db.get_by_idempotency_key(key)
+        {
+            return Response::Job(Box::new(existing));
         }
         match db.generate_id() {
             Ok(id) => id,
