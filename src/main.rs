@@ -43,9 +43,13 @@ enum Commands {
         #[arg(short = 'k', long)]
         key: Option<String>,
 
-        /// Wait for job to complete
+        /// Wait for job to complete (silent)
         #[arg(short, long)]
         wait: bool,
+
+        /// Follow output until job completes
+        #[arg(short, long)]
+        follow: bool,
     },
 
     /// List jobs
@@ -166,7 +170,11 @@ async fn main() -> Result<()> {
             context,
             key,
             wait,
-        } => commands::run::execute(command, name, timeout, context, key, wait, cli.json).await,
+            follow,
+        } => {
+            commands::run::execute(command, name, timeout, context, key, wait, follow, cli.json)
+                .await
+        }
         Commands::List { status, here, all } => {
             commands::list::execute(status, here, all, cli.json)
         }

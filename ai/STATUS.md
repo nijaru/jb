@@ -1,9 +1,18 @@
 # Status
 
-**Version**: 0.0.2 (released)
-**Phase**: Published to crates.io
+**Version**: 0.0.3 (ready for release)
+**Phase**: Testing before publish
 
-## What Works
+## v0.0.3 Changes
+
+| Feature             | Status    | Notes                         |
+| ------------------- | --------- | ----------------------------- |
+| `logs --follow`     | Completed | Stream output until job done  |
+| `run --follow`      | Completed | Start + stream (resilient fg) |
+| Exit code in `list` | Completed | Shows exit code column        |
+| Docs updated        | Completed | README + skill                |
+
+## What Works (v0.0.2)
 
 | Command         | Status | Notes                      |
 | --------------- | ------ | -------------------------- |
@@ -41,9 +50,3 @@
 
 - No automated tests
 - No signal handling for graceful daemon shutdown
-
-## Next Steps
-
-1. Real-world testing with Claude Code
-2. Consider job chaining (`--after <id>`)
-3. Add `--follow` for logs

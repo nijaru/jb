@@ -30,8 +30,8 @@ pub fn execute(status_filter: Option<String>, here: bool, all: bool, json: bool)
     }
 
     println!(
-        "{:<10} {:<12} {:<12} {:<30} STARTED",
-        "ID", "STATUS", "NAME", "COMMAND"
+        "{:<10} {:<12} {:<6} {:<12} {:<30} STARTED",
+        "ID", "STATUS", "EXIT", "NAME", "COMMAND"
     );
 
     for job in jobs {
@@ -44,11 +44,15 @@ pub fn execute(status_filter: Option<String>, here: bool, all: bool, json: bool)
         let started = job
             .started_at
             .map_or_else(|| "-".to_string(), format_relative_time);
+        let exit = job
+            .exit_code
+            .map_or_else(|| "-".to_string(), |c| c.to_string());
 
         println!(
-            "{:<10} {:<12} {:<12} {:<30} {}",
+            "{:<10} {:<12} {:<6} {:<12} {:<30} {}",
             job.short_id(),
             job.status,
+            exit,
             truncate(name, 10),
             cmd,
             started

@@ -4,6 +4,7 @@ use crate::core::{Paths, detect_project, parse_duration};
 use anyhow::Result;
 use std::env;
 
+#[allow(clippy::fn_params_excessive_bools, clippy::too_many_arguments)]
 pub async fn execute(
     command: String,
     name: Option<String>,
@@ -11,6 +12,7 @@ pub async fn execute(
     context: Option<String>,
     key: Option<String>,
     wait: bool,
+    follow: bool,
     json: bool,
 ) -> Result<()> {
     let paths = Paths::new();
@@ -40,14 +42,19 @@ pub async fn execute(
 
     match client.send(request).await? {
         Response::Job(job) => {
-            if json {
+            let job_id = job.id.clone();
+
+            if json && !follow {
                 println!("{}", serde_json::to_string(&job)?);
-            } else {
+            } else if !follow {
                 println!("{}", job.short_id());
             }
 
-            if wait {
-                wait_for_job(&mut client, &job.id, json).await?;
+            if follow {
+                // Follow implies waiting, so use logs --follow
+                crate::commands::logs::execute(&job_id, None, true)?;
+            } else if wait {
+                wait_for_job(&mut client, &job_id, json).await?;
             }
 
             Ok(())

@@ -168,3 +168,25 @@
 - Can't re-attach to orphaned processes
 - Don't know actual exit status, so can't mark completed/failed
 - Clean slate for new daemon instance
+
+---
+
+## 2024-12-18: v0.0.3 feature selection - `--follow` only
+
+**Context**: Agent feedback requested several features: job chaining (`--after`), job groups, list filters, graceful stop, separate stderr, and `--follow` for output streaming.
+
+**Decision**: Implement only `--follow` (logs + run) and exit code in list. Skip the rest.
+
+**Rationale**:
+
+| Feature           | Verdict | Why                                          |
+| ----------------- | ------- | -------------------------------------------- |
+| `--follow`        | Add     | Essential for monitoring; no complexity cost |
+| Exit code in list | Add     | Zero cost, saves a `status` call             |
+| `--after <id>`    | Skip    | Shell chaining (`wait x && run y`) is better |
+| Job groups        | Skip    | `cmd1 & cmd2 & wait` in shell is clearer     |
+| List filters      | Skip    | `jb list \| grep x` works fine               |
+| Graceful stop     | Skip    | SIGTERM default, SIGKILL --force is enough   |
+| Separate stderr   | Skip    | Adds confusion; interleaved is standard      |
+
+Unix philosophy: let the shell handle sequencing and filtering. Keep jb focused on job lifecycle.
