@@ -1,7 +1,7 @@
 # Status
 
-**Version**: 0.0.3 (ready for release)
-**Phase**: Testing before publish
+**Version**: 0.0.3 (released)
+**Phase**: Published to crates.io
 
 ## v0.0.3 Changes
 
