@@ -236,3 +236,242 @@ impl Database {
         bail!("Too many jobs - run `jb clean` to remove old jobs")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::job::Job;
+    use tempfile::TempDir;
+
+    fn test_db() -> (Database, TempDir) {
+        let tmp = TempDir::new().unwrap();
+        let paths = Paths::with_root(tmp.path().to_path_buf());
+        let db = Database::open(&paths).unwrap();
+        (db, tmp)
+    }
+
+    fn create_test_job(id: &str, status: Status) -> Job {
+        let mut job = Job::new(
+            id.to_string(),
+            format!("echo {id}"),
+            PathBuf::from("/tmp"),
+            PathBuf::from("/project"),
+        );
+        job.status = status;
+        job
+    }
+
+    #[test]
+    fn test_insert_and_get() {
+        let (db, _tmp) = test_db();
+        let job = create_test_job("abc1", Status::Pending);
+
+        db.insert(&job).unwrap();
+        let retrieved = db.get("abc1").unwrap().unwrap();
+
+        assert_eq!(retrieved.id, "abc1");
+        assert_eq!(retrieved.status, Status::Pending);
+    }
+
+    #[test]
+    fn test_get_nonexistent() {
+        let (db, _tmp) = test_db();
+        let result = db.get("nonexistent").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_get_by_prefix() {
+        let (db, _tmp) = test_db();
+        let job = create_test_job("xyz9", Status::Running);
+        db.insert(&job).unwrap();
+
+        // Full ID works
+        assert!(db.get("xyz9").unwrap().is_some());
+        // Prefix works
+        assert!(db.get("xyz").unwrap().is_some());
+        assert!(db.get("xy").unwrap().is_some());
+    }
+
+    #[test]
+    fn test_get_by_name() {
+        let (db, _tmp) = test_db();
+        let job = create_test_job("abc1", Status::Running).with_name("my-job");
+        db.insert(&job).unwrap();
+
+        let jobs = db.get_by_name("my-job").unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, "abc1");
+
+        let jobs = db.get_by_name("nonexistent").unwrap();
+        assert!(jobs.is_empty());
+    }
+
+    #[test]
+    fn test_list_no_filter() {
+        let (db, _tmp) = test_db();
+        db.insert(&create_test_job("a", Status::Running)).unwrap();
+        db.insert(&create_test_job("b", Status::Completed)).unwrap();
+        db.insert(&create_test_job("c", Status::Failed)).unwrap();
+
+        let jobs = db.list(None, None).unwrap();
+        assert_eq!(jobs.len(), 3);
+    }
+
+    #[test]
+    fn test_list_with_status_filter() {
+        let (db, _tmp) = test_db();
+        db.insert(&create_test_job("a", Status::Running)).unwrap();
+        db.insert(&create_test_job("b", Status::Running)).unwrap();
+        db.insert(&create_test_job("c", Status::Failed)).unwrap();
+        db.insert(&create_test_job("d", Status::Completed)).unwrap();
+
+        let running = db.list(Some(Status::Running), None).unwrap();
+        assert_eq!(running.len(), 2);
+
+        let failed = db.list(Some(Status::Failed), None).unwrap();
+        assert_eq!(failed.len(), 1);
+        assert_eq!(failed[0].id, "c");
+    }
+
+    #[test]
+    fn test_list_with_limit() {
+        let (db, _tmp) = test_db();
+        for i in 0..20 {
+            db.insert(&create_test_job(&format!("job{i:02}"), Status::Completed))
+                .unwrap();
+        }
+
+        let jobs = db.list(None, Some(10)).unwrap();
+        assert_eq!(jobs.len(), 10);
+
+        let jobs = db.list(None, Some(5)).unwrap();
+        assert_eq!(jobs.len(), 5);
+    }
+
+    #[test]
+    fn test_list_with_status_and_limit() {
+        let (db, _tmp) = test_db();
+        for i in 0..10 {
+            db.insert(&create_test_job(&format!("f{i}"), Status::Failed))
+                .unwrap();
+        }
+        for i in 0..10 {
+            db.insert(&create_test_job(&format!("c{i}"), Status::Completed))
+                .unwrap();
+        }
+
+        let failed = db.list(Some(Status::Failed), Some(3)).unwrap();
+        assert_eq!(failed.len(), 3);
+        assert!(failed.iter().all(|j| j.status == Status::Failed));
+    }
+
+    #[test]
+    fn test_list_ordered_by_created_at_desc() {
+        let (db, _tmp) = test_db();
+        // Insert in order a, b, c
+        db.insert(&create_test_job("a", Status::Completed)).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        db.insert(&create_test_job("b", Status::Completed)).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        db.insert(&create_test_job("c", Status::Completed)).unwrap();
+
+        let jobs = db.list(None, None).unwrap();
+        // Should be in reverse order (newest first)
+        assert_eq!(jobs[0].id, "c");
+        assert_eq!(jobs[1].id, "b");
+        assert_eq!(jobs[2].id, "a");
+    }
+
+    #[test]
+    fn test_update_status() {
+        let (db, _tmp) = test_db();
+        db.insert(&create_test_job("abc1", Status::Pending))
+            .unwrap();
+
+        db.update_status("abc1", Status::Running).unwrap();
+        let job = db.get("abc1").unwrap().unwrap();
+        assert_eq!(job.status, Status::Running);
+    }
+
+    #[test]
+    fn test_update_started() {
+        let (db, _tmp) = test_db();
+        db.insert(&create_test_job("abc1", Status::Pending))
+            .unwrap();
+
+        db.update_started("abc1", 12345).unwrap();
+        let job = db.get("abc1").unwrap().unwrap();
+        assert_eq!(job.status, Status::Running);
+        assert_eq!(job.pid, Some(12345));
+        assert!(job.started_at.is_some());
+    }
+
+    #[test]
+    fn test_update_finished() {
+        let (db, _tmp) = test_db();
+        db.insert(&create_test_job("abc1", Status::Running))
+            .unwrap();
+
+        db.update_finished("abc1", Status::Completed, Some(0))
+            .unwrap();
+        let job = db.get("abc1").unwrap().unwrap();
+        assert_eq!(job.status, Status::Completed);
+        assert_eq!(job.exit_code, Some(0));
+        assert!(job.finished_at.is_some());
+    }
+
+    #[test]
+    fn test_job_exists() {
+        let (db, _tmp) = test_db();
+        db.insert(&create_test_job("abc1", Status::Pending))
+            .unwrap();
+
+        assert!(db.job_exists("abc1").unwrap());
+        assert!(!db.job_exists("xyz9").unwrap());
+    }
+
+    #[test]
+    fn test_generate_id() {
+        let (db, _tmp) = test_db();
+        let id = db.generate_id().unwrap();
+
+        assert_eq!(id.len(), 4);
+        assert!(id.chars().all(|c| c.is_ascii_alphanumeric()));
+    }
+
+    #[test]
+    fn test_generate_id_unique() {
+        let (db, _tmp) = test_db();
+        let mut ids = std::collections::HashSet::new();
+
+        for _ in 0..100 {
+            let id = db.generate_id().unwrap();
+            assert!(ids.insert(id), "Generated duplicate ID");
+        }
+    }
+
+    #[test]
+    fn test_idempotency_key() {
+        let (db, _tmp) = test_db();
+        let job = create_test_job("abc1", Status::Pending).with_idempotency_key("unique-key");
+        db.insert(&job).unwrap();
+
+        let found = db.get_by_idempotency_key("unique-key").unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().id, "abc1");
+
+        let not_found = db.get_by_idempotency_key("other-key").unwrap();
+        assert!(not_found.is_none());
+    }
+
+    #[test]
+    fn test_idempotency_key_unique_constraint() {
+        let (db, _tmp) = test_db();
+        let job1 = create_test_job("abc1", Status::Pending).with_idempotency_key("same-key");
+        let job2 = create_test_job("abc2", Status::Pending).with_idempotency_key("same-key");
+
+        db.insert(&job1).unwrap();
+        assert!(db.insert(&job2).is_err());
+    }
+}

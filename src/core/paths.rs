@@ -14,6 +14,13 @@ impl Paths {
         Self { root }
     }
 
+    /// Create Paths with a custom root directory (useful for testing)
+    #[cfg(test)]
+    #[must_use]
+    pub fn with_root(root: PathBuf) -> Self {
+        Self { root }
+    }
+
     #[must_use]
     pub fn database(&self) -> PathBuf {
         self.root.join("job.db")

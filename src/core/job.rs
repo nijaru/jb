@@ -125,3 +125,107 @@ impl Job {
         &self.id
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_status_as_str() {
+        assert_eq!(Status::Pending.as_str(), "pending");
+        assert_eq!(Status::Running.as_str(), "running");
+        assert_eq!(Status::Completed.as_str(), "completed");
+        assert_eq!(Status::Failed.as_str(), "failed");
+        assert_eq!(Status::Stopped.as_str(), "stopped");
+        assert_eq!(Status::Interrupted.as_str(), "interrupted");
+    }
+
+    #[test]
+    fn test_status_is_terminal() {
+        assert!(!Status::Pending.is_terminal());
+        assert!(!Status::Running.is_terminal());
+        assert!(Status::Completed.is_terminal());
+        assert!(Status::Failed.is_terminal());
+        assert!(Status::Stopped.is_terminal());
+        assert!(Status::Interrupted.is_terminal());
+    }
+
+    #[test]
+    fn test_status_from_str() {
+        assert_eq!("pending".parse::<Status>().unwrap(), Status::Pending);
+        assert_eq!("running".parse::<Status>().unwrap(), Status::Running);
+        assert_eq!("completed".parse::<Status>().unwrap(), Status::Completed);
+        assert_eq!("failed".parse::<Status>().unwrap(), Status::Failed);
+        assert_eq!("stopped".parse::<Status>().unwrap(), Status::Stopped);
+        assert_eq!(
+            "interrupted".parse::<Status>().unwrap(),
+            Status::Interrupted
+        );
+    }
+
+    #[test]
+    fn test_status_from_str_case_insensitive() {
+        assert_eq!("PENDING".parse::<Status>().unwrap(), Status::Pending);
+        assert_eq!("Running".parse::<Status>().unwrap(), Status::Running);
+        assert_eq!("COMPLETED".parse::<Status>().unwrap(), Status::Completed);
+    }
+
+    #[test]
+    fn test_status_from_str_invalid() {
+        assert!("invalid".parse::<Status>().is_err());
+        assert!("".parse::<Status>().is_err());
+    }
+
+    #[test]
+    fn test_status_display() {
+        assert_eq!(format!("{}", Status::Running), "running");
+        assert_eq!(format!("{}", Status::Failed), "failed");
+    }
+
+    #[test]
+    fn test_job_new() {
+        let job = Job::new(
+            "abc1".to_string(),
+            "echo hello".to_string(),
+            PathBuf::from("/tmp"),
+            PathBuf::from("/project"),
+        );
+
+        assert_eq!(job.id, "abc1");
+        assert_eq!(job.command, "echo hello");
+        assert_eq!(job.status, Status::Pending);
+        assert_eq!(job.cwd, PathBuf::from("/tmp"));
+        assert_eq!(job.project, PathBuf::from("/project"));
+        assert!(job.name.is_none());
+        assert!(job.pid.is_none());
+        assert!(job.exit_code.is_none());
+    }
+
+    #[test]
+    fn test_job_builder_methods() {
+        let job = Job::new(
+            "abc1".to_string(),
+            "echo hello".to_string(),
+            PathBuf::from("/tmp"),
+            PathBuf::from("/project"),
+        )
+        .with_name("test-job")
+        .with_timeout(300)
+        .with_idempotency_key("unique-key");
+
+        assert_eq!(job.name, Some("test-job".to_string()));
+        assert_eq!(job.timeout_secs, Some(300));
+        assert_eq!(job.idempotency_key, Some("unique-key".to_string()));
+    }
+
+    #[test]
+    fn test_job_short_id() {
+        let job = Job::new(
+            "xyz9".to_string(),
+            "cmd".to_string(),
+            PathBuf::from("/tmp"),
+            PathBuf::from("/project"),
+        );
+        assert_eq!(job.short_id(), "xyz9");
+    }
+}
