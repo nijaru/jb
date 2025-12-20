@@ -3,7 +3,6 @@ use crate::core::{Paths, Status};
 use crate::daemon::spawner;
 use crate::daemon::state::DaemonState;
 use anyhow::Result;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
@@ -137,11 +136,10 @@ async fn handle_request(request: Request, state: &Arc<DaemonState>) -> Response 
             Err(e) => Response::Error(e.to_string()),
         },
 
-        Request::List { status, project } => {
+        Request::List { status, limit } => {
             let status_filter = status.and_then(|s| s.parse::<Status>().ok());
-            let project_filter = project.map(PathBuf::from);
 
-            match state.list_jobs(status_filter, project_filter.as_ref()) {
+            match state.list_jobs(status_filter, limit) {
                 Ok(jobs) => Response::Jobs(jobs),
                 Err(e) => Response::Error(e.to_string()),
             }

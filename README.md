@@ -29,24 +29,27 @@ Exit: 0
 
 ## Commands
 
-| Command                 | Purpose                     |
-| ----------------------- | --------------------------- |
-| `jb run <cmd>`          | Start background job        |
-| `jb run <cmd> --follow` | Start + stream output       |
-| `jb run <cmd> --wait`   | Start + wait silently       |
-| `jb list`               | List jobs (current project) |
-| `jb logs <id>`          | View output                 |
-| `jb logs <id> --follow` | Stream output until done    |
-| `jb status <id>`        | Job details                 |
-| `jb stop <id>`          | Stop job                    |
-| `jb wait <id>`          | Block until done            |
-| `jb retry <id>`         | Re-run job                  |
-| `jb clean`              | Remove old jobs             |
+| Command                 | Purpose                  |
+| ----------------------- | ------------------------ |
+| `jb run <cmd>`          | Start background job     |
+| `jb run <cmd> --follow` | Start + stream output    |
+| `jb run <cmd> --wait`   | Start + wait silently    |
+| `jb list`               | List last 10 jobs        |
+| `jb list -n 20`         | List last 20 jobs        |
+| `jb list -a`            | List all jobs            |
+| `jb list --failed`      | List failed jobs         |
+| `jb logs <id>`          | View output              |
+| `jb logs <id> --follow` | Stream output until done |
+| `jb status <id>`        | Job details              |
+| `jb stop <id>`          | Stop job                 |
+| `jb wait <id>`          | Block until done         |
+| `jb retry <id>`         | Re-run job               |
+| `jb clean`              | Remove old jobs          |
 
 ## Features
 
 - Short memorable IDs (`a3x9`)
-- Per-project job tracking (via git root)
+- Clean output (last 10 jobs by default)
 - JSON output (`--json`)
 - Survives terminal disconnect
 - Auto-starts daemon

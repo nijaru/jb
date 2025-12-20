@@ -21,7 +21,7 @@ pub enum Request {
     },
     List {
         status: Option<String>,
-        project: Option<String>,
+        limit: Option<usize>,
     },
     Wait {
         id: String,

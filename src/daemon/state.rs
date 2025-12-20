@@ -76,8 +76,8 @@ impl DaemonState {
     pub fn list_jobs(
         &self,
         status: Option<Status>,
-        project: Option<&std::path::PathBuf>,
+        limit: Option<usize>,
     ) -> anyhow::Result<Vec<Job>> {
-        self.db.lock().unwrap().list(status, project)
+        self.db.lock().unwrap().list(status, limit)
     }
 }

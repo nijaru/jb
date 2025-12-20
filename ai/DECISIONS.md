@@ -190,3 +190,41 @@
 | Separate stderr   | Skip    | Adds confusion; interleaved is standard      |
 
 Unix philosophy: let the shell handle sequencing and filtering. Keep jb focused on job lifecycle.
+
+---
+
+## 2024-12-20: Simplified `jb list` - last 10 default, no project scoping
+
+**Context**: `jb list` showed all jobs for current project, resulting in 39+ jobs cluttering output. Users primarily want to see recent activity, not full history.
+
+**Decision**:
+
+- Default: show last 10 jobs (any status)
+- Remove project-based filtering entirely
+- Add `-n <N>` for custom limit, `-a` for all, `--failed` shortcut
+
+**New interface:**
+
+| Command              | Shows                 |
+| -------------------- | --------------------- |
+| `jb list`            | Last 10 jobs          |
+| `jb list -n 20`      | Last 20 jobs          |
+| `jb list -a`         | All jobs              |
+| `jb list --failed`   | Last 10 failed        |
+| `jb list --status X` | Last 10 with status X |
+
+**Rationale:**
+
+1. **"Last 10" beats "running only"**: Running-only default hides what just finished. You kick off a build, come back, see "no running jobs" - now you need extra flags to see if it passed. Last 10 shows running jobs naturally (they're recent) plus recent results.
+
+2. **Project scoping adds complexity without value**: For a personal job runner, you want to see YOUR jobs, period. If the list is long, that's what `-n` and `jb clean` are for. Removes `--here`, `--all` (project), `--global` mental overhead.
+
+3. **`--failed` earns its shortcut**: Failures are actionable (debugging). Successes are expected - rarely need to filter for them. Use `--status completed` for that edge case.
+
+4. **Consistent limit behavior**: Default limit of 10 applies everywhere. Override with `-n` or `-a`. Filters (`--failed`, `--status`) also respect the limit.
+
+**Breaking changes:**
+
+- `--all` now means "all jobs" (no limit), not "all projects"
+- `--here` removed (no project scoping)
+- Default behavior changed from "all statuses, current project" to "last 10, all projects"

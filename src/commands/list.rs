@@ -1,23 +1,31 @@
-use crate::core::{Database, Paths, Status, detect_project};
+use crate::core::{Database, Paths, Status};
 use anyhow::Result;
-use std::env;
 
-pub fn execute(status_filter: Option<String>, here: bool, all: bool, json: bool) -> Result<()> {
+const DEFAULT_LIMIT: usize = 10;
+
+pub fn execute(
+    status_filter: Option<String>,
+    failed: bool,
+    limit: Option<usize>,
+    all: bool,
+    json: bool,
+) -> Result<()> {
     let paths = Paths::new();
     let db = Database::open(&paths)?;
 
-    let status = status_filter.map(|s| s.parse::<Status>()).transpose()?;
-
-    let project = if all {
-        None
-    } else if here {
-        Some(env::current_dir()?)
+    let status = if failed {
+        Some(Status::Failed)
     } else {
-        let cwd = env::current_dir()?;
-        Some(detect_project(&cwd))
+        status_filter.map(|s| s.parse::<Status>()).transpose()?
     };
 
-    let jobs = db.list(status, project.as_ref())?;
+    let effective_limit = if all {
+        None
+    } else {
+        Some(limit.unwrap_or(DEFAULT_LIMIT))
+    };
+
+    let jobs = db.list(status, effective_limit)?;
 
     if json {
         println!("{}", serde_json::to_string(&jobs)?);

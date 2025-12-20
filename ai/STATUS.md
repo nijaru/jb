@@ -1,9 +1,19 @@
 # Status
 
-**Version**: 0.0.4 (released)
-**Phase**: Published to crates.io + homebrew tap
+**Version**: 0.0.5 (ready to release)
+**Phase**: Simplified list UX
 
-## v0.0.4 Changes
+## v0.0.5 Changes
+
+| Feature                | Status    | Notes                                   |
+| ---------------------- | --------- | --------------------------------------- |
+| List default: last 10  | Completed | Show recent jobs, not all               |
+| Remove project scoping | Completed | Global by default, simpler mental model |
+| Add `-n` limit flag    | Completed | `jb list -n 20` for custom limit        |
+| Add `-a` all flag      | Completed | Show all jobs (no limit)                |
+| Add `--failed` filter  | Completed | Shortcut for `--status failed`          |
+
+## v0.0.4 (released)
 
 | Feature             | Status    | Notes                        |
 | ------------------- | --------- | ---------------------------- |

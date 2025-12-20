@@ -106,7 +106,7 @@ impl Database {
         Ok(job)
     }
 
-    pub fn list(&self, status: Option<Status>, project: Option<&PathBuf>) -> Result<Vec<Job>> {
+    pub fn list(&self, status: Option<Status>, limit: Option<usize>) -> Result<Vec<Job>> {
         let mut sql = String::from("SELECT * FROM jobs WHERE 1=1");
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
@@ -115,12 +115,11 @@ impl Database {
             params_vec.push(Box::new(s.as_str().to_string()));
         }
 
-        if let Some(p) = project {
-            sql.push_str(" AND project = ?");
-            params_vec.push(Box::new(p.to_string_lossy().to_string()));
-        }
-
         sql.push_str(" ORDER BY created_at DESC");
+
+        if let Some(n) = limit {
+            sql.push_str(&format!(" LIMIT {n}"));
+        }
 
         let mut stmt = self.conn.prepare(&sql)?;
         let params_refs: Vec<&dyn rusqlite::ToSql> =

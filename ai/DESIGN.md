@@ -37,13 +37,13 @@ Single binary: `jb daemon` is a hidden subcommand, auto-started by client.
 
 ## Core Principles
 
-| Principle      | Implementation                                     |
-| -------------- | -------------------------------------------------- |
-| Modern nohup   | Simple run/status/logs workflow                    |
-| Agent-first    | JSON output, non-interactive, idempotent           |
-| Zero-config    | Auto-creates dirs on first use                     |
-| Project-scoped | Jobs tagged with git root                          |
-| Reliable       | SQLite state, daemon monitors, recovery on restart |
+| Principle    | Implementation                                     |
+| ------------ | -------------------------------------------------- |
+| Modern nohup | Simple run/status/logs workflow                    |
+| Agent-first  | JSON output, non-interactive, idempotent           |
+| Zero-config  | Auto-creates dirs on first use                     |
+| Minimal UI   | Last 10 jobs by default, clean interface           |
+| Reliable     | SQLite state, daemon monitors, recovery on restart |
 
 ## Data Model
 
@@ -72,20 +72,23 @@ enum Status {
 
 ## CLI Commands
 
-| Command                 | Purpose                     |
-| ----------------------- | --------------------------- |
-| `jb run <cmd>`          | Start background job        |
-| `jb run <cmd> --follow` | Start + stream output       |
-| `jb run <cmd> --wait`   | Start + wait silently       |
-| `jb list`               | List jobs (current project) |
-| `jb status [<id>]`      | Job or system status        |
-| `jb logs <id>`          | View output                 |
-| `jb logs <id> --follow` | Stream output until done    |
-| `jb stop <id>`          | Stop job                    |
-| `jb wait <id>`          | Block until done            |
-| `jb retry <id>`         | Re-run job                  |
-| `jb clean`              | Remove old jobs             |
-| `jb skill install`      | Install Claude skill        |
+| Command                 | Purpose                  |
+| ----------------------- | ------------------------ |
+| `jb run <cmd>`          | Start background job     |
+| `jb run <cmd> --follow` | Start + stream output    |
+| `jb run <cmd> --wait`   | Start + wait silently    |
+| `jb list`               | List last 10 jobs        |
+| `jb list -n 20`         | List last 20 jobs        |
+| `jb list -a`            | List all jobs            |
+| `jb list --failed`      | List failed jobs         |
+| `jb status [<id>]`      | Job or system status     |
+| `jb logs <id>`          | View output              |
+| `jb logs <id> --follow` | Stream output until done |
+| `jb stop <id>`          | Stop job                 |
+| `jb wait <id>`          | Block until done         |
+| `jb retry <id>`         | Re-run job               |
+| `jb clean`              | Remove old jobs          |
+| `jb skill install`      | Install Claude skill     |
 
 ## Output Streaming (`--follow`)
 

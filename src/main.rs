@@ -58,12 +58,16 @@ enum Commands {
         #[arg(short, long)]
         status: Option<String>,
 
-        /// Only jobs from current project
+        /// Show only failed jobs
         #[arg(long)]
-        here: bool,
+        failed: bool,
 
-        /// Show all jobs across all projects
-        #[arg(long)]
+        /// Number of jobs to show (default: 10)
+        #[arg(short = 'n', long)]
+        limit: Option<usize>,
+
+        /// Show all jobs (no limit)
+        #[arg(short, long)]
         all: bool,
     },
 
@@ -175,9 +179,12 @@ async fn main() -> Result<()> {
             commands::run::execute(command, name, timeout, context, key, wait, follow, cli.json)
                 .await
         }
-        Commands::List { status, here, all } => {
-            commands::list::execute(status, here, all, cli.json)
-        }
+        Commands::List {
+            status,
+            failed,
+            limit,
+            all,
+        } => commands::list::execute(status, failed, limit, all, cli.json),
         Commands::Status { id } => commands::status::execute(id, cli.json),
         Commands::Logs { id, tail, follow } => commands::logs::execute(&id, tail, follow),
         Commands::Stop { id, force } => commands::stop::execute(id, force, cli.json).await,

@@ -41,8 +41,10 @@ jb run "cmd" --name build       # Named reference
 jb run "cmd" --timeout 30m      # With timeout
 jb run "cmd" --key "unique"     # Idempotent (won't duplicate)
 
-jb list                         # Current project jobs
-jb list --all                   # All projects
+jb list                         # Last 10 jobs
+jb list -n 20                   # Last 20 jobs
+jb list -a                      # All jobs
+jb list --failed                # Failed jobs only
 jb list --status running        # Filter: pending|running|completed|failed|stopped
 
 jb status <id>                  # Job details

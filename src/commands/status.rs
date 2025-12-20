@@ -1,6 +1,5 @@
-use crate::core::{Database, Paths, Status, detect_project};
+use crate::core::{Database, Paths, Status};
 use anyhow::Result;
-use std::env;
 
 pub fn execute(id: Option<String>, json: bool) -> Result<()> {
     let paths = Paths::new();
@@ -86,10 +85,6 @@ fn show_system_status(db: &Database, paths: &Paths, json: bool) -> Result<()> {
         .filter(|j| j.status == Status::Failed)
         .count();
 
-    let cwd = env::current_dir()?;
-    let project = detect_project(&cwd);
-    let project_jobs = db.list(None, Some(&project))?.len();
-
     let daemon_running = paths.socket().exists();
 
     if json {
@@ -100,10 +95,6 @@ fn show_system_status(db: &Database, paths: &Paths, json: bool) -> Result<()> {
                 "completed": completed,
                 "failed": failed,
                 "total": all_jobs.len()
-            },
-            "project": {
-                "path": project,
-                "jobs": project_jobs
             }
         });
         println!("{}", serde_json::to_string_pretty(&status)?);
@@ -121,7 +112,6 @@ fn show_system_status(db: &Database, paths: &Paths, json: bool) -> Result<()> {
         failed,
         all_jobs.len()
     );
-    println!("Project:  {} ({} jobs)", project.display(), project_jobs);
 
     Ok(())
 }
