@@ -64,7 +64,7 @@ jb logs <id>
 ## For AI Agents
 
 ```bash
-jb skills install  # installs to ~/.claude/skills/jb/
+jb skill install  # installs to ~/.claude/skills/jb/
 ```
 
 ## License

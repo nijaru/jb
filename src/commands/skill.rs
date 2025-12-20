@@ -1,16 +1,16 @@
-use crate::SkillsAction;
+use crate::SkillAction;
 use anyhow::Result;
 use std::path::PathBuf;
 
 const SKILL_CONTENT: &str = include_str!("../../skills/SKILL.md");
 
-pub fn execute(action: Option<SkillsAction>) -> Result<()> {
+pub fn execute(action: Option<SkillAction>) -> Result<()> {
     match action {
-        Some(SkillsAction::Install { path }) => {
+        Some(SkillAction::Install { path }) => {
             let skills_dir = path.unwrap_or_else(get_default_skills_dir);
             install_skills(&skills_dir)
         }
-        Some(SkillsAction::Show) => {
+        Some(SkillAction::Show) => {
             print!("{SKILL_CONTENT}");
             Ok(())
         }
@@ -51,7 +51,7 @@ fn install_skills(skills_dir: &PathBuf) -> Result<()> {
     println!();
     println!("  **Background Jobs:** `jb run \"cmd\"` for long-running commands.");
     println!();
-    println!("For other agents: jb skills show > /path/to/config");
+    println!("For other agents: jb skill show > /path/to/config");
 
     Ok(())
 }

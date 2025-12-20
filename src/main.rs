@@ -128,10 +128,10 @@ enum Commands {
         all: bool,
     },
 
-    /// Install Claude skills
-    Skills {
+    /// Install Claude skill
+    Skill {
         #[command(subcommand)]
-        action: Option<SkillsAction>,
+        action: Option<SkillAction>,
     },
 
     /// Run the daemon (internal use)
@@ -140,8 +140,8 @@ enum Commands {
 }
 
 #[derive(Subcommand)]
-pub enum SkillsAction {
-    /// Install skills to ~/.claude/skills/jb/ (or custom path)
+pub enum SkillAction {
+    /// Install skill to ~/.claude/skills/jb/ (or custom path)
     Install {
         /// Custom installation directory
         #[arg(long)]
@@ -188,7 +188,7 @@ async fn main() -> Result<()> {
             status,
             all,
         } => commands::clean::execute(&older_than, status, all),
-        Commands::Skills { action } => commands::skills::execute(action),
+        Commands::Skill { action } => commands::skill::execute(action),
         Commands::Daemon => commands::daemon::execute().await,
     }
 }

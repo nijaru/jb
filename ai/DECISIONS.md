@@ -121,7 +121,7 @@
 
 - Zero friction for first use
 - Agents can't handle prompts
-- `jb skills install` is the only setup command (opt-in)
+- `jb skill install` is the only setup command (opt-in)
 
 ---
 

@@ -85,7 +85,7 @@ enum Status {
 | `jb wait <id>`          | Block until done            |
 | `jb retry <id>`         | Re-run job                  |
 | `jb clean`              | Remove old jobs             |
-| `jb skills install`     | Install Claude skills       |
+| `jb skill install`      | Install Claude skill        |
 
 ## Output Streaming (`--follow`)
 

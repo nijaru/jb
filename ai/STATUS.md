@@ -1,7 +1,14 @@
 # Status
 
-**Version**: 0.0.3 (released)
-**Phase**: Published to crates.io
+**Version**: 0.0.4 (pending release)
+**Phase**: Ready for release
+
+## v0.0.4 Changes
+
+| Feature             | Status    | Notes                        |
+| ------------------- | --------- | ---------------------------- |
+| `skills` -> `skill` | Completed | Singular command (git-style) |
+| Homebrew tap        | Completed | `brew install nijaru/tap/jb` |
 
 ## v0.0.3 Changes
 
