@@ -1,7 +1,7 @@
 # Status
 
-**Version**: 0.0.4 (pending release)
-**Phase**: Ready for release
+**Version**: 0.0.4 (released)
+**Phase**: Published to crates.io + homebrew tap
 
 ## v0.0.4 Changes
 
