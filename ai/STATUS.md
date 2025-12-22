@@ -1,7 +1,18 @@
 # Status
 
-**Version**: 0.0.7 (released)
+**Version**: 0.0.7 (released, pending 0.0.8)
 **Phase**: Published to crates.io + homebrew tap
+
+## Current Work (v0.0.8)
+
+| Task                           | Status      | Notes                                   |
+| ------------------------------ | ----------- | --------------------------------------- |
+| Linux testing on Fedora        | Completed   | All features verified working           |
+| Docs: --tail [N] clarification | Completed   | Skill and README updated                |
+| Fix redundant help defaults    | Completed   | clean --help no longer shows default 2x |
+| Improve clean output/help      | Completed   | Single-line output, cleaner help text   |
+| Add -o short flag for clean    | In Progress | --older-than shortcut                   |
+| Review all CLI help text       | Pending     | Consistency pass                        |
 
 ## v0.0.7 Changes
 
