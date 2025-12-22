@@ -120,15 +120,15 @@ enum Commands {
 
     /// Remove old jobs (default: older than 7d)
     Clean {
-        /// Remove jobs older than duration (e.g., 1d, 12h)
+        /// Age threshold (e.g., 1d, 12h)
         #[arg(long, default_value = "7d")]
         older_than: String,
 
-        /// Only remove jobs with specific status
+        /// Filter: completed, failed, stopped, interrupted
         #[arg(long)]
         status: Option<String>,
 
-        /// Remove all non-running jobs
+        /// Ignore age, remove all non-running jobs
         #[arg(long)]
         all: bool,
     },
