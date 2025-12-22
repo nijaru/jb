@@ -2,8 +2,8 @@ use crate::core::{Database, Paths};
 use anyhow::Result;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub fn execute(id: &str, tail: Option<usize>, follow: bool) -> Result<()> {
@@ -123,7 +123,7 @@ fn follow_logs(db: &Database, _paths: &Paths, job_id: &str, log_path: &Path) -> 
 fn ctrlc_handler<F: Fn() + Send + Sync + 'static>(handler: F) {
     #[cfg(unix)]
     {
-        use nix::sys::signal::{signal, SigHandler, Signal};
+        use nix::sys::signal::{SigHandler, Signal, signal};
 
         static HANDLER: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> =
             std::sync::OnceLock::new();

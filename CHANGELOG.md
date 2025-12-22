@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.8] - 2025-12-21
+
+### Added
+
+- `jb ls` alias for `jb list`
+- `-t` short flag for `jb clean --older-than`
+- `-a` short flag for `jb clean --all`
+
+### Changed
+
+- Improved `jb clean` help text and output
+- Refactored job resolution into shared helper (internal)
+
+### Fixed
+
+- `jb logs --follow` no longer reopens database every poll
+
 ## [0.0.7] - 2025-12-20
 
 ### Added
