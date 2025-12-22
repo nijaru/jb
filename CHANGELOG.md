@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.9] - 2025-12-21
+
+### Fixed
+
+- **Process group signaling for reliable job termination**
+  - `jb stop` now uses `killpg` to signal entire process group
+  - Previously: Only killed shell wrapper, leaving child processes running
+  - Now: `jb run "source .env && ./app"` works without `exec` workaround
+  - Timeout (`-t`) kills all children on expiry
+  - Daemon shutdown cleanly terminates all process groups
+
+- **Smart orphan recovery on daemon restart**
+  - Checks if orphaned job's PID is still alive before marking interrupted
+  - Live processes: kept as "running", can be stopped normally
+  - Dead processes: correctly marked as "interrupted"
+  - Recovery runs on: list, status, logs, wait commands
+
 ## [0.0.8] - 2025-12-21
 
 ### Added

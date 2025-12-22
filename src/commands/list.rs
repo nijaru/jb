@@ -14,6 +14,9 @@ pub fn execute(
     let paths = Paths::new();
     let db = Database::open(&paths)?;
 
+    // Check for orphaned jobs (dead processes still marked running)
+    db.recover_orphans();
+
     let status = if failed {
         Some(Status::Failed)
     } else {

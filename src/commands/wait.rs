@@ -7,6 +7,10 @@ use std::time::{Duration, Instant};
 pub async fn execute(id: String, timeout: Option<String>) -> Result<()> {
     let paths = Paths::new();
     let db = Database::open(&paths)?;
+
+    // Check for orphaned jobs (dead processes still marked running)
+    db.recover_orphans();
+
     let job = db.resolve(&id)?;
 
     // If already terminal, return immediately

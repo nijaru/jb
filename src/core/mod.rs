@@ -54,7 +54,7 @@ mod tests {
     #[test]
     fn test_parse_duration_days() {
         assert_eq!(parse_duration("1d").unwrap(), 86400);
-        assert_eq!(parse_duration("7d").unwrap(), 604800);
+        assert_eq!(parse_duration("7d").unwrap(), 604_800);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use crate::core::ipc::Response;
 use crate::core::{Job, Status};
-use crate::daemon::state::{DaemonState, RunningJob};
+use crate::daemon::state::{DaemonState, RunningJob, kill_process_group};
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -122,6 +122,7 @@ async fn run_job(
             job_id.clone(),
             RunningJob {
                 child,
+                pid,
                 completion_tx: Some(tx),
             },
         );
@@ -168,10 +169,10 @@ async fn monitor_job(state: &Arc<DaemonState>, job_id: &str, timeout_secs: Optio
         if let Some(t) = timeout
             && start.elapsed() >= t
         {
-            // Kill the process on timeout
-            let mut running = state.running_jobs.lock().unwrap();
-            if let Some(job) = running.get_mut(job_id) {
-                let _ = job.child.start_kill();
+            // Kill the entire process group on timeout
+            let running = state.running_jobs.lock().unwrap();
+            if let Some(job) = running.get(job_id) {
+                kill_process_group(job.pid, true); // Force kill on timeout
             }
             break None;
         }
@@ -216,27 +217,19 @@ async fn monitor_job(state: &Arc<DaemonState>, job_id: &str, timeout_secs: Optio
     }
 }
 
-pub async fn stop_job(state: &Arc<DaemonState>, job_id: &str, force: bool) -> Response {
+pub fn stop_job(state: &Arc<DaemonState>, job_id: &str, force: bool) -> Response {
     // Remove from running jobs and kill - this prevents monitor from updating status
     let removed = {
         let mut running = state.running_jobs.lock().unwrap();
         running.remove(job_id)
     };
 
-    let Some(mut job) = removed else {
+    let Some(job) = removed else {
         return Response::Error(format!("Job {job_id} is not running"));
     };
 
-    // Kill the process
-    let kill_result = if force {
-        job.child.kill().await
-    } else {
-        job.child.start_kill()
-    };
-
-    if let Err(e) = kill_result {
-        return Response::Error(format!("Failed to stop job: {e}"));
-    }
+    // Kill the entire process group (not just the shell wrapper)
+    kill_process_group(job.pid, force);
 
     // Update DB
     {

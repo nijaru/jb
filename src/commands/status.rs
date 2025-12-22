@@ -5,6 +5,9 @@ pub fn execute(id: Option<String>, json: bool) -> Result<()> {
     let paths = Paths::new();
     let db = Database::open(&paths)?;
 
+    // Check for orphaned jobs (dead processes still marked running)
+    db.recover_orphans();
+
     match id {
         Some(id) => show_job_status(&db, &paths, &id, json),
         None => show_system_status(&db, &paths, json),

@@ -67,13 +67,18 @@ fn kill_process(pid: u32, force: bool) {
     use nix::sys::signal::{Signal, killpg};
     use nix::unistd::Pid;
 
+    // Never signal pid 0 - that would kill our own process group
+    if pid == 0 {
+        return;
+    }
+
     let signal = if force {
         Signal::SIGKILL
     } else {
         Signal::SIGTERM
     };
 
-    #[allow(clippy::cast_possible_wrap)] // PIDs are always < i32::MAX
+    #[allow(clippy::cast_possible_wrap)]
     let _ = killpg(Pid::from_raw(pid as i32), signal);
 }
 

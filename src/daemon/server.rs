@@ -189,7 +189,7 @@ async fn handle_request(
                 if job.status != Status::Running {
                     return Response::Error(format!("Job {} is not running", job.short_id()));
                 }
-                spawner::stop_job(state, &job.id, force).await
+                spawner::stop_job(state, &job.id, force)
             }
             Ok(None) => Response::Error(format!("Job not found: {id}")),
             Err(e) => Response::Error(e.to_string()),

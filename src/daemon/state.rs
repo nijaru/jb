@@ -8,7 +8,36 @@ use tracing::warn;
 
 pub struct RunningJob {
     pub child: Child,
+    pub pid: u32,
     pub completion_tx: Option<oneshot::Sender<()>>,
+}
+
+/// Kill an entire process group.
+/// The PID is the process group leader (child was spawned with `process_group(0)`).
+#[cfg(unix)]
+pub fn kill_process_group(pid: u32, force: bool) {
+    use nix::sys::signal::{Signal, killpg};
+    use nix::unistd::Pid;
+
+    // SAFETY: Never signal pid 0 - that would kill our own process group!
+    if pid == 0 {
+        warn!("Attempted to kill process group with pid 0, ignoring");
+        return;
+    }
+
+    let signal = if force {
+        Signal::SIGKILL
+    } else {
+        Signal::SIGTERM
+    };
+
+    #[allow(clippy::cast_possible_wrap)]
+    let _ = killpg(Pid::from_raw(pid as i32), signal);
+}
+
+#[cfg(not(unix))]
+pub fn kill_process_group(_pid: u32, _force: bool) {
+    // On non-Unix, fallback to nothing (child.kill handled separately)
 }
 
 pub struct DaemonState {
@@ -33,23 +62,9 @@ impl DaemonState {
         })
     }
 
-    /// Mark any jobs stuck in "running" or "pending" state as interrupted.
-    /// These are orphans from a previous daemon that crashed.
+    /// Handle jobs stuck in "running" or "pending" state from previous daemon.
     fn recover_orphaned_jobs(db: &Database) {
-        let orphaned = db
-            .list(Some(Status::Running), None)
-            .unwrap_or_default()
-            .into_iter()
-            .chain(db.list(Some(Status::Pending), None).unwrap_or_default());
-
-        for job in orphaned {
-            warn!(
-                "Recovering orphaned job {} (was {})",
-                job.short_id(),
-                job.status
-            );
-            let _ = db.update_finished(&job.id, Status::Interrupted, None);
-        }
+        db.recover_orphans();
     }
 
     pub fn uptime_secs(&self) -> u64 {
@@ -81,10 +96,10 @@ impl DaemonState {
         let mut running = self.running_jobs.lock().unwrap();
         let db = self.db.lock().unwrap();
 
-        for (id, mut job) in running.drain() {
+        for (id, job) in running.drain() {
             warn!("Interrupting job {id} on shutdown");
-            // Kill the child process
-            let _ = job.child.start_kill();
+            // Kill the entire process group (not just the shell wrapper)
+            kill_process_group(job.pid, false);
             // Mark as interrupted in database
             let _ = db.update_finished(&id, Status::Interrupted, None);
         }

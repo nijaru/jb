@@ -277,6 +277,46 @@ impl Database {
 
         bail!("Too many jobs - run `jb clean` to remove old jobs")
     }
+
+    /// Check for orphaned jobs (running/pending but process dead) and mark as interrupted.
+    /// Called on DB open to handle daemon crashes.
+    pub fn recover_orphans(&self) {
+        let orphans = self
+            .list(Some(Status::Running), None)
+            .unwrap_or_default()
+            .into_iter()
+            .chain(self.list(Some(Status::Pending), None).unwrap_or_default());
+
+        for job in orphans {
+            if let Some(pid) = job.pid
+                && is_process_alive(pid)
+            {
+                // Process still running - leave as is
+                continue;
+            }
+            // Process dead or no PID - mark as interrupted
+            let _ = self.update_finished(&job.id, Status::Interrupted, None);
+        }
+    }
+}
+
+/// Check if a process is still alive by sending signal 0.
+#[cfg(unix)]
+fn is_process_alive(pid: u32) -> bool {
+    use nix::sys::signal::kill;
+    use nix::unistd::Pid;
+
+    if pid == 0 {
+        return false;
+    }
+
+    #[allow(clippy::cast_possible_wrap)]
+    kill(Pid::from_raw(pid as i32), None).is_ok()
+}
+
+#[cfg(not(unix))]
+fn is_process_alive(_pid: u32) -> bool {
+    false
 }
 
 #[cfg(test)]
