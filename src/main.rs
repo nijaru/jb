@@ -120,7 +120,7 @@ enum Commands {
 
     /// Remove old jobs
     Clean {
-        /// Remove jobs older than duration (default: 7d)
+        /// Remove jobs older than duration (e.g., 1d, 12h)
         #[arg(long, default_value = "7d")]
         older_than: String,
 
