@@ -96,12 +96,12 @@ impl Database {
         Ok(jobs)
     }
 
-    /// Check if a name is in use by a running job. Returns the job if so.
+    /// Check if a name is in use by an active (pending/running) job. Returns the job if so.
     pub fn name_in_use(&self, name: &str) -> Result<Option<Job>> {
         let job = self
             .conn
             .query_row(
-                "SELECT * FROM jobs WHERE name = ?1 AND status = 'running'",
+                "SELECT * FROM jobs WHERE name = ?1 AND status IN ('pending', 'running')",
                 params![name],
                 Self::row_to_job,
             )
@@ -642,7 +642,7 @@ mod tests {
     }
 
     #[test]
-    fn test_name_in_use() {
+    fn test_name_in_use_running() {
         let (db, _tmp) = test_db();
         db.insert(&create_test_job("a", Status::Running).with_name("my-job"))
             .unwrap();
@@ -657,5 +657,28 @@ mod tests {
         // Non-existent name should not be in use
         let not_in_use = db.name_in_use("other-name").unwrap();
         assert!(not_in_use.is_none());
+    }
+
+    #[test]
+    fn test_name_in_use_pending() {
+        let (db, _tmp) = test_db();
+        db.insert(&create_test_job("a", Status::Pending).with_name("my-job"))
+            .unwrap();
+
+        // Pending job should also be detected as in-use
+        let in_use = db.name_in_use("my-job").unwrap();
+        assert!(in_use.is_some());
+        assert_eq!(in_use.unwrap().id, "a");
+    }
+
+    #[test]
+    fn test_name_not_in_use_when_completed() {
+        let (db, _tmp) = test_db();
+        db.insert(&create_test_job("a", Status::Completed).with_name("my-job"))
+            .unwrap();
+
+        // Completed job should NOT be detected as in-use
+        let in_use = db.name_in_use("my-job").unwrap();
+        assert!(in_use.is_none());
     }
 }
