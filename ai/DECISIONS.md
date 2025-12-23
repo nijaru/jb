@@ -276,19 +276,19 @@ Unix philosophy: let the shell handle sequencing and filtering. Keep jb focused 
 
 ---
 
-## 2024-12-23: Smart job name resolution
+## 2024-12-23: Names unique while running, resolve to latest
 
-**Context**: When multiple jobs share the same name, `jb logs <name>` failed with "Ambiguous job name" and printed a list. Users had to manually copy the ID.
+**Context**: When multiple jobs share the same name, commands like `jb logs <name>` were ambiguous. Initial approach added `--latest` flag and auto-resolve logic, but this felt complex.
 
-**Decision**: Three-tier resolution strategy:
+**Decision**: Simpler model inspired by Docker containers:
 
-1. `--latest` flag: Explicitly select most recent job
-2. Auto-resolve: If exactly one job with that name is running, use it (with message)
-3. Clean error: Show table of matching jobs with status/age, suggest `--latest`
+1. **Unique while running**: Can't create a job with name X if another job named X is running
+2. **Released on completion**: Once a job finishes, its name is available again
+3. **Resolve to latest**: `jb logs test` returns the most recent job named "test"
 
 **Rationale**:
 
-- Common case: checking logs of currently running job. Auto-resolve handles this.
-- Second common case: re-checking completed job. `--latest` is one extra flag vs copying ID.
-- Error message is actionable (shows options, suggests fix)
-- UserError type prevents stack traces for user-recoverable errors
+- Names behave like "handles" to the current job, not labels for categorization
+- No ambiguity: running job owns the name, completed jobs accessible by ID or latest
+- Simpler mental model than `--latest` flag and auto-resolve heuristics
+- Similar to Docker container names (unique, but can be reused after removal)

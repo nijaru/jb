@@ -52,7 +52,7 @@ pub async fn execute(
 
             if follow {
                 // Follow implies waiting, so use logs --follow
-                crate::commands::logs::execute(&job_id, None, true, false)?;
+                crate::commands::logs::execute(&job_id, None, true)?;
             } else if wait {
                 wait_for_job(&mut client, &job_id, json).await?;
             }

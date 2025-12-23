@@ -1,13 +1,12 @@
 use crate::client::DaemonClient;
 use crate::core::ipc::{Request, Response};
-use crate::core::{Database, Paths, ResolveOptions};
+use crate::core::{Database, Paths};
 use anyhow::Result;
 
-pub async fn execute(id: String, latest: bool, json: bool) -> Result<()> {
+pub async fn execute(id: String, json: bool) -> Result<()> {
     let paths = Paths::new();
     let db = Database::open(&paths)?;
-    let opts = ResolveOptions { latest };
-    let job = db.resolve_with_options(&id, &opts)?;
+    let job = db.resolve(&id)?;
 
     // Send to daemon
     let mut client = DaemonClient::connect_or_start().await?;

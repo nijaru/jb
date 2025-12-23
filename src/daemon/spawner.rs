@@ -22,14 +22,28 @@ pub async fn spawn_job(
     context: Option<serde_json::Value>,
     idempotency_key: Option<String>,
 ) -> Response {
-    // Check idempotency key and generate ID
+    // Check idempotency key and name uniqueness, generate ID
     let id = {
         let db = state.db.lock().unwrap();
+
+        // Idempotency check
         if let Some(ref key) = idempotency_key
             && let Ok(Some(existing)) = db.get_by_idempotency_key(key)
         {
             return Response::Job(Box::new(existing));
         }
+
+        // Name uniqueness check: can't have two running jobs with same name
+        if let Some(ref n) = name
+            && let Ok(Some(running)) = db.name_in_use(n)
+        {
+            return Response::Error(format!(
+                "Name '{}' is in use by running job {}",
+                n,
+                running.short_id()
+            ));
+        }
+
         match db.generate_id() {
             Ok(id) => id,
             Err(e) => return Response::Error(e.to_string()),

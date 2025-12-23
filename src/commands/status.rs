@@ -1,7 +1,7 @@
-use crate::core::{Database, Paths, ResolveOptions, Status};
+use crate::core::{Database, Paths, Status};
 use anyhow::Result;
 
-pub fn execute(id: Option<String>, latest: bool, json: bool) -> Result<()> {
+pub fn execute(id: Option<String>, json: bool) -> Result<()> {
     let paths = Paths::new();
     let db = Database::open(&paths)?;
 
@@ -9,14 +9,13 @@ pub fn execute(id: Option<String>, latest: bool, json: bool) -> Result<()> {
     db.recover_orphans();
 
     match id {
-        Some(id) => show_job_status(&db, &paths, &id, latest, json),
+        Some(id) => show_job_status(&db, &paths, &id, json),
         None => show_system_status(&db, &paths, json),
     }
 }
 
-fn show_job_status(db: &Database, paths: &Paths, id: &str, latest: bool, json: bool) -> Result<()> {
-    let opts = ResolveOptions { latest };
-    let job = db.resolve_with_options(id, &opts)?;
+fn show_job_status(db: &Database, paths: &Paths, id: &str, json: bool) -> Result<()> {
+    let job = db.resolve(id)?;
 
     if json {
         println!("{}", serde_json::to_string_pretty(&job)?);

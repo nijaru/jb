@@ -78,10 +78,6 @@ enum Commands {
     Status {
         /// Job ID or name (omit for system status)
         id: Option<String>,
-
-        /// Select most recent job if name matches multiple
-        #[arg(short = 'l', long)]
-        latest: bool,
     },
 
     /// Show job output
@@ -96,10 +92,6 @@ enum Commands {
         /// Follow output as it's written
         #[arg(short, long)]
         follow: bool,
-
-        /// Select most recent job if name matches multiple
-        #[arg(short = 'l', long)]
-        latest: bool,
     },
 
     /// Stop a running job
@@ -110,10 +102,6 @@ enum Commands {
         /// Force kill (SIGKILL instead of SIGTERM)
         #[arg(short, long)]
         force: bool,
-
-        /// Select most recent job if name matches multiple
-        #[arg(short = 'l', long)]
-        latest: bool,
     },
 
     /// Wait for a job to complete
@@ -124,20 +112,12 @@ enum Commands {
         /// Timeout duration (e.g., 5m, 1h)
         #[arg(short, long)]
         timeout: Option<String>,
-
-        /// Select most recent job if name matches multiple
-        #[arg(short = 'l', long)]
-        latest: bool,
     },
 
     /// Re-run a job
     Retry {
         /// Job ID or name
         id: String,
-
-        /// Select most recent job if name matches multiple
-        #[arg(short = 'l', long)]
-        latest: bool,
     },
 
     /// Remove old jobs (default: older than 7d)
@@ -231,22 +211,11 @@ async fn run() -> Result<()> {
             limit,
             all,
         } => commands::list::execute(status, failed, limit, all, cli.json),
-        Commands::Status { id, latest } => commands::status::execute(id, latest, cli.json),
-        Commands::Logs {
-            id,
-            tail,
-            follow,
-            latest,
-        } => commands::logs::execute(&id, tail, follow, latest),
-        Commands::Stop { id, force, latest } => {
-            commands::stop::execute(id, force, latest, cli.json).await
-        }
-        Commands::Wait {
-            id,
-            timeout,
-            latest,
-        } => commands::wait::execute(id, timeout, latest).await,
-        Commands::Retry { id, latest } => commands::retry::execute(id, latest, cli.json).await,
+        Commands::Status { id } => commands::status::execute(id, cli.json),
+        Commands::Logs { id, tail, follow } => commands::logs::execute(&id, tail, follow),
+        Commands::Stop { id, force } => commands::stop::execute(id, force, cli.json).await,
+        Commands::Wait { id, timeout } => commands::wait::execute(id, timeout).await,
+        Commands::Retry { id } => commands::retry::execute(id, cli.json).await,
         Commands::Clean {
             older_than,
             status,

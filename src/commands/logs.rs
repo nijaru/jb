@@ -1,20 +1,19 @@
-use crate::core::{Database, Paths, ResolveOptions};
+use crate::core::{Database, Paths};
 use anyhow::Result;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
-pub fn execute(id: &str, tail: Option<usize>, follow: bool, latest: bool) -> Result<()> {
+pub fn execute(id: &str, tail: Option<usize>, follow: bool) -> Result<()> {
     let paths = Paths::new();
     let db = Database::open(&paths)?;
 
     // Check for orphaned jobs (dead processes still marked running)
     db.recover_orphans();
 
-    let opts = ResolveOptions { latest };
-    let job = db.resolve_with_options(id, &opts)?;
+    let job = db.resolve(id)?;
     let log_path = paths.log_file(&job.id);
 
     if follow {
@@ -187,7 +186,7 @@ fn follow_logs(db: &Database, _paths: &Paths, job_id: &str, log_path: &Path) -> 
 fn ctrlc_handler<F: Fn() + Send + Sync + 'static>(handler: F) {
     #[cfg(unix)]
     {
-        use nix::sys::signal::{SigHandler, Signal, signal};
+        use nix::sys::signal::{signal, SigHandler, Signal};
 
         static HANDLER: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> =
             std::sync::OnceLock::new();

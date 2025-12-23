@@ -5,7 +5,7 @@ pub mod job;
 pub mod paths;
 pub mod project;
 
-pub use db::{Database, ResolveOptions};
+pub use db::Database;
 pub use error::UserError;
 pub use job::{Job, Status};
 pub use paths::Paths;

@@ -6,12 +6,6 @@ use rand::Rng;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::PathBuf;
 
-/// Options for resolving a job by ID or name.
-#[derive(Default, Clone)]
-pub struct ResolveOptions {
-    /// If true, select the most recently created job when multiple match.
-    pub latest: bool,
-}
 
 pub struct Database {
     conn: Connection,
@@ -100,6 +94,19 @@ impl Database {
             .query_map(params![name], Self::row_to_job)?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(jobs)
+    }
+
+    /// Check if a name is in use by a running job. Returns the job if so.
+    pub fn name_in_use(&self, name: &str) -> Result<Option<Job>> {
+        let job = self
+            .conn
+            .query_row(
+                "SELECT * FROM jobs WHERE name = ?1 AND status = 'running'",
+                params![name],
+                Self::row_to_job,
+            )
+            .optional()?;
+        Ok(job)
     }
 
     pub fn get_by_idempotency_key(&self, key: &str) -> Result<Option<Job>> {
@@ -248,67 +255,25 @@ impl Database {
         Ok(count as usize)
     }
 
-    /// Resolve a job by ID or name with default options.
-    #[cfg(test)]
+    /// Resolve a job by ID or name.
+    /// For names, returns the most recent job with that name.
     pub fn resolve(&self, id: &str) -> Result<Job> {
-        self.resolve_with_options(id, &ResolveOptions::default())
-    }
-
-    /// Resolve a job by ID or name with options.
-    ///
-    /// Resolution strategy for multiple matches:
-    /// 1. If `--latest` flag is set, pick the most recently created job
-    /// 2. If exactly one job is running, use it (with a message)
-    /// 3. Otherwise, return a user-friendly error listing matches
-    pub fn resolve_with_options(&self, id: &str, opts: &ResolveOptions) -> Result<Job> {
         // Try by ID first
         if let Some(job) = self.get(id)? {
             return Ok(job);
         }
 
-        // Try by name
+        // Try by name - get most recent
         let mut by_name = self.get_by_name(id)?;
-        match by_name.len() {
-            0 => bail!(UserError::new(format!(
+        if by_name.is_empty() {
+            bail!(UserError::new(format!(
                 "No job found with ID or name '{id}'"
-            ))),
-            1 => Ok(by_name.into_iter().next().unwrap()),
-            _ => {
-                // Sort by created_at desc (newest first)
-                by_name.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-
-                // If --latest, just pick newest
-                if opts.latest {
-                    return Ok(by_name.into_iter().next().unwrap());
-                }
-
-                // Auto-resolve: if exactly one is running, use it
-                let running: Vec<_> = by_name
-                    .iter()
-                    .filter(|j| j.status == Status::Running)
-                    .collect();
-                if running.len() == 1 {
-                    let job = running[0].clone();
-                    eprintln!(
-                        "Multiple jobs named '{id}', using running job {}",
-                        job.short_id()
-                    );
-                    return Ok(job);
-                }
-
-                // Build user-friendly error message
-                let mut msg = format!("Multiple jobs named '{id}':\n\n");
-                msg.push_str("  ID    Status       Created\n");
-                for j in &by_name {
-                    let age = format_age(j.created_at);
-                    msg.push_str(&format!("  {}  {:12} {}\n", j.short_id(), j.status, age));
-                }
-
-                Err(UserError::new(msg)
-                    .with_hint("Use job ID instead of name, or add --latest to select most recent.")
-                    .into())
-            }
+            )));
         }
+
+        // Sort by created_at desc (newest first) and return first
+        by_name.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        Ok(by_name.into_iter().next().unwrap())
     }
 
     pub fn generate_id(&self) -> Result<String> {
@@ -346,24 +311,6 @@ impl Database {
             // Process dead or no PID - mark as interrupted
             let _ = self.update_finished(&job.id, Status::Interrupted, None);
         }
-    }
-}
-
-/// Format a timestamp as relative age (e.g., "2h ago", "5m ago").
-fn format_age(dt: chrono::DateTime<chrono::Utc>) -> String {
-    let secs = chrono::Utc::now().signed_duration_since(dt).num_seconds();
-    if secs < 0 {
-        return "just now".to_string();
-    }
-    let secs = secs as u64;
-    if secs < 60 {
-        format!("{secs}s ago")
-    } else if secs < 3600 {
-        format!("{}m ago", secs / 60)
-    } else if secs < 86400 {
-        format!("{}h ago", secs / 3600)
-    } else {
-        format!("{}d ago", secs / 86400)
     }
 }
 
@@ -680,34 +627,7 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_ambiguous_auto_selects_running() {
-        let (db, _tmp) = test_db();
-        db.insert(&create_test_job("a", Status::Running).with_name("same-name"))
-            .unwrap();
-        db.insert(&create_test_job("b", Status::Failed).with_name("same-name"))
-            .unwrap();
-
-        // With exactly one running job, it should auto-select it
-        let result = db.resolve("same-name");
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap().id, "a");
-    }
-
-    #[test]
-    fn test_resolve_ambiguous_multiple_non_running() {
-        let (db, _tmp) = test_db();
-        db.insert(&create_test_job("a", Status::Failed).with_name("same-name"))
-            .unwrap();
-        db.insert(&create_test_job("b", Status::Completed).with_name("same-name"))
-            .unwrap();
-
-        // With no running jobs, it should error
-        let result = db.resolve("same-name");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_resolve_with_latest() {
+    fn test_resolve_returns_most_recent() {
         let (db, _tmp) = test_db();
         db.insert(&create_test_job("a", Status::Completed).with_name("same-name"))
             .unwrap();
@@ -715,10 +635,27 @@ mod tests {
         db.insert(&create_test_job("b", Status::Completed).with_name("same-name"))
             .unwrap();
 
-        // With --latest, should pick the most recent (b)
-        let opts = ResolveOptions { latest: true };
-        let result = db.resolve_with_options("same-name", &opts);
+        // Should pick the most recent (b)
+        let result = db.resolve("same-name");
         assert!(result.is_ok());
         assert_eq!(result.unwrap().id, "b");
+    }
+
+    #[test]
+    fn test_name_in_use() {
+        let (db, _tmp) = test_db();
+        db.insert(&create_test_job("a", Status::Running).with_name("my-job"))
+            .unwrap();
+        db.insert(&create_test_job("b", Status::Completed).with_name("my-job"))
+            .unwrap();
+
+        // Running job should be detected as in-use
+        let in_use = db.name_in_use("my-job").unwrap();
+        assert!(in_use.is_some());
+        assert_eq!(in_use.unwrap().id, "a");
+
+        // Non-existent name should not be in use
+        let not_in_use = db.name_in_use("other-name").unwrap();
+        assert!(not_in_use.is_none());
     }
 }
