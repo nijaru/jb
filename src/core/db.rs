@@ -6,7 +6,6 @@ use rand::Rng;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::PathBuf;
 
-
 pub struct Database {
     conn: Connection,
 }

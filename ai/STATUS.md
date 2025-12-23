@@ -1,6 +1,6 @@
 # Status
 
-**Version**: 0.0.11 (unreleased)
+**Version**: 0.0.11 (released)
 **Phase**: Name uniqueness
 
 ## Current Work

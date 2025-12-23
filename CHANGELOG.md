@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.0.11] - 2025-12-23
+
+### Changed
+
+- **Names unique while running**
+  - Can't create job with `--name X` if another job named X is pending/running
+  - Name is released when job completes, can be reused
+  - `jb logs <name>` returns most recent job with that name
+
+### Removed
+
+- `--latest` flag (no longer needed, name always resolves to most recent)
+
 ## [0.0.10] - 2025-12-22
 
 ### Changed
