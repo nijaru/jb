@@ -273,3 +273,22 @@ Unix philosophy: let the shell handle sequencing and filtering. Keep jb focused 
 - Only reads ~8KB chunks from end of file
 - Streaming output to stdout (no full file buffering)
 - Same user-visible behavior, better resource usage
+
+---
+
+## 2024-12-23: Smart job name resolution
+
+**Context**: When multiple jobs share the same name, `jb logs <name>` failed with "Ambiguous job name" and printed a list. Users had to manually copy the ID.
+
+**Decision**: Three-tier resolution strategy:
+
+1. `--latest` flag: Explicitly select most recent job
+2. Auto-resolve: If exactly one job with that name is running, use it (with message)
+3. Clean error: Show table of matching jobs with status/age, suggest `--latest`
+
+**Rationale**:
+
+- Common case: checking logs of currently running job. Auto-resolve handles this.
+- Second common case: re-checking completed job. `--latest` is one extra flag vs copying ID.
+- Error message is actionable (shows options, suggests fix)
+- UserError type prevents stack traces for user-recoverable errors

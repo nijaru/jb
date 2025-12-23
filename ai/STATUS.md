@@ -1,16 +1,27 @@
 # Status
 
-**Version**: 0.0.10 (ready to release)
-**Phase**: Performance and reliability improvements
+**Version**: 0.0.10 (released)
+**Phase**: UX improvements
 
-## Current Work (v0.0.10)
+## Current Work
 
-| Task                           | Status    | Notes                                   |
-| ------------------------------ | --------- | --------------------------------------- |
-| Event-based job monitoring     | Completed | `tokio::select!` replaces 100ms polling |
-| Graceful timeout escalation    | Completed | SIGTERM → 2s wait → SIGKILL             |
-| Efficient `--tail` for logs    | Completed | Seek-based, works with GB files         |
-| Deduplicate kill_process_group | Completed | Moved to `core/` shared module          |
+| Task                           | Status    | Notes                                           |
+| ------------------------------ | --------- | ----------------------------------------------- |
+| `--latest` flag for resolution | Completed | Select most recent job when name is ambiguous   |
+| Auto-resolve single running    | Completed | When one job running with name, auto-select     |
+| Clean error messages           | Completed | UserError type, no stack traces for user errors |
+
+## v0.0.10 (released)
+
+| Task                           | Status    | Notes                                       |
+| ------------------------------ | --------- | ------------------------------------------- |
+| Event-based job monitoring     | Completed | `tokio::select!` replaces 100ms polling     |
+| Graceful timeout escalation    | Completed | SIGTERM → 2s wait → SIGKILL                 |
+| Efficient `--tail` for logs    | Completed | Seek-based, works with GB files             |
+| Deduplicate kill_process_group | Completed | Moved to `core/` shared module              |
+| `--latest` flag                | Completed | Resolve ambiguous names to most recent      |
+| Auto-resolve running job       | Completed | Single running job with name auto-selects   |
+| UserError clean exits          | Completed | No stack traces for user-recoverable errors |
 
 ## v0.0.9 (released)
 
