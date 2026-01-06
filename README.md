@@ -46,10 +46,11 @@ Exit: 0
 | `jb list -n 20`         | List last 20 jobs        |
 | `jb list -a`            | List all jobs            |
 | `jb list --failed`      | List failed jobs         |
-| `jb logs <id>`          | View output              |
+| `jb logs <id>`          | View output (colorized)  |
 | `jb logs <id> --tail`   | Last 50 lines            |
 | `jb logs <id> --tail N` | Last N lines             |
 | `jb logs <id> --follow` | Stream output until done |
+| `jb logs <id> --pager`  | View in pager (less -R)  |
 | `jb status <id>`        | Job details              |
 | `jb stop <id>`          | Stop job                 |
 | `jb wait <id>`          | Block until done         |
@@ -60,11 +61,12 @@ Exit: 0
 
 - Short memorable IDs (`a3x9`)
 - Clean output (last 10 jobs by default)
-- Color-coded status
+- Color-coded status and logs (error/warn/info/debug)
 - Shell completions (bash, zsh, fish)
 - JSON output (`--json`)
 - Survives terminal disconnect
 - Auto-starts daemon
+- Respects `NO_COLOR` environment variable
 
 ## vs nohup
 

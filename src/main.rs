@@ -91,6 +91,10 @@ enum Commands {
         /// Follow output as it's written
         #[arg(short, long)]
         follow: bool,
+
+        /// Pipe output through pager (less -R)
+        #[arg(long)]
+        pager: bool,
     },
 
     /// Stop a running job
@@ -193,7 +197,12 @@ async fn run() -> Result<()> {
             all,
         } => commands::list::execute(status, failed, limit, all, cli.json),
         Commands::Status { id } => commands::status::execute(id, cli.json),
-        Commands::Logs { id, tail, follow } => commands::logs::execute(&id, tail, follow),
+        Commands::Logs {
+            id,
+            tail,
+            follow,
+            pager,
+        } => commands::logs::execute(&id, tail, follow, pager),
         Commands::Stop { id, force } => commands::stop::execute(id, force, cli.json).await,
         Commands::Wait { id, timeout } => commands::wait::execute(id, timeout).await,
         Commands::Retry { id } => commands::retry::execute(id, cli.json).await,
