@@ -247,11 +247,19 @@ jobs:
           sed -i "s|/v[0-9.]*[^/]*/jb-|/$TAG/jb-|g" Formula/jb.rb
           sed -i "s|/v[0-9.]*[^/]*.tar.gz|/$TAG.tar.gz|g" Formula/jb.rb
 
-          # Replace PLACEHOLDERs in order (mac-arm64, source, linux-arm64, linux-x64)
-          sed -i "0,/PLACEHOLDER/s/PLACEHOLDER/$MAC_ARM64_SHA/" Formula/jb.rb
-          sed -i "0,/PLACEHOLDER/s/PLACEHOLDER/$SOURCE_SHA/" Formula/jb.rb
-          sed -i "0,/PLACEHOLDER/s/PLACEHOLDER/$LINUX_ARM64_SHA/" Formula/jb.rb
-          sed -i "0,/PLACEHOLDER/s/PLACEHOLDER/$LINUX_X64_SHA/" Formula/jb.rb
+          # Replace sha256 values in order: mac-arm64, mac-intel source, linux-arm64, linux-x64
+          python3 -c "
+import re, os
+content = open('Formula/jb.rb').read()
+shas = [os.environ['MAC_ARM64_SHA'], os.environ['SOURCE_SHA'], os.environ['LINUX_ARM64_SHA'], os.environ['LINUX_X64_SHA']]
+count = [0]
+def replace(m):
+    result = m.group(1) + shas[count[0]] + m.group(2)
+    count[0] += 1
+    return result
+new_content = re.sub(r'(sha256 \")[0-9a-f]+(\")', replace, content)
+open('Formula/jb.rb', 'w').write(new_content)
+"
 
       - name: Commit and push
         run: |
