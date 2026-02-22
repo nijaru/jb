@@ -9,7 +9,7 @@ Background job manager for AI agents. Allows agents to spawn tasks that survive 
 | Architecture & design | `ai/DESIGN.md`    |
 | Current status        | `ai/STATUS.md`    |
 | Design decisions      | `ai/DECISIONS.md` |
-| Tasks                 | `bd list`         |
+| Tasks                 | `tk ls`           |
 
 ## Project Structure
 
@@ -39,7 +39,7 @@ jb/
 ```bash
 cargo build --release       # Build
 ./target/release/jb --help  # CLI help
-bd list                     # View tasks
+tk ls                       # View tasks
 ```
 
 ## Releasing

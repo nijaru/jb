@@ -25,11 +25,11 @@ jb status a3x9
        │                            │
        ▼                            ▼
 ┌─────────────────────────────────────────┐
-│           ~/.local/share/jb/            │
-│  ├── jobs.db       (SQLite)             │
+│               ~/.jb/                    │
+│  ├── job.db        (SQLite)             │
 │  ├── logs/         (job output)         │
-│  ├── jbd.sock      (IPC)                │
-│  └── jbd.pid       (PID file)           │
+│  ├── daemon.sock   (IPC)                │
+│  └── daemon.pid    (PID file)           │
 └─────────────────────────────────────────┘
 ```
 
@@ -107,8 +107,8 @@ jb logs abc1 --follow           # Attach to running job, stream until done
 
 **Implementation:**
 
-- Tail log file with inotify/kqueue for new content
-- Poll job status to detect completion
+- Read log file in 8KB chunks with 100ms poll interval
+- Poll job status via DB to detect completion
 - Propagate exit code when job reaches terminal state
 
 ## Process Lifecycle
