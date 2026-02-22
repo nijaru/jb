@@ -274,7 +274,7 @@ impl Database {
         }
 
         // Sort by created_at desc (newest first) and return first
-        by_name.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        by_name.sort_by_key(|b| std::cmp::Reverse(b.created_at));
         Ok(by_name.into_iter().next().unwrap())
     }
 
