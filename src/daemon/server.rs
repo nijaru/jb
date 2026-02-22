@@ -168,7 +168,6 @@ async fn handle_request(
             cwd,
             project,
             timeout_secs,
-            context,
             idempotency_key,
         } => spawner::spawn_job(
             state,
@@ -177,7 +176,6 @@ async fn handle_request(
             cwd,
             project,
             timeout_secs,
-            context,
             idempotency_key,
         ),
 

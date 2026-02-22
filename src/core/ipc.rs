@@ -9,7 +9,6 @@ pub enum Request {
         cwd: String,
         project: String,
         timeout_secs: Option<u64>,
-        context: Option<serde_json::Value>,
         idempotency_key: Option<String>,
     },
     Stop {

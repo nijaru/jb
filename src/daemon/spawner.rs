@@ -10,7 +10,6 @@ use tokio::process::Command;
 use tokio::sync::watch;
 use tracing::{error, info, warn};
 
-#[allow(clippy::too_many_arguments)]
 pub fn spawn_job(
     state: &Arc<DaemonState>,
     command: String,
@@ -18,7 +17,6 @@ pub fn spawn_job(
     cwd: String,
     project: String,
     timeout_secs: Option<u64>,
-    context: Option<serde_json::Value>,
     idempotency_key: Option<String>,
 ) -> Response {
     // Check idempotency key and name uniqueness, generate ID
@@ -62,9 +60,6 @@ pub fn spawn_job(
     }
     if let Some(t) = timeout_secs {
         job = job.with_timeout(t);
-    }
-    if let Some(c) = context {
-        job = job.with_context(c);
     }
     if let Some(k) = idempotency_key {
         job = job.with_idempotency_key(k);

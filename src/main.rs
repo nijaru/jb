@@ -14,7 +14,7 @@ use core::UserError;
 #[command(version)]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 
     /// Output as JSON
     #[arg(long, global = true)]
@@ -36,9 +36,9 @@ enum Commands {
         #[arg(short, long)]
         timeout: Option<String>,
 
-        /// JSON context metadata
+        /// Working directory (default: current directory)
         #[arg(short, long)]
-        context: Option<String>,
+        dir: Option<String>,
 
         /// Idempotency key (skip if job with key exists)
         #[arg(short = 'k', long)]
@@ -177,19 +177,23 @@ async fn main() {
 async fn run() -> Result<()> {
     let cli = Cli::parse();
 
-    match cli.command {
+    let command = cli.command.unwrap_or(Commands::List {
+        status: None,
+        failed: false,
+        limit: None,
+        all: false,
+    });
+
+    match command {
         Commands::Run {
             command,
             name,
             timeout,
-            context,
+            dir,
             key,
             wait,
             follow,
-        } => {
-            commands::run::execute(command, name, timeout, context, key, wait, follow, cli.json)
-                .await
-        }
+        } => commands::run::execute(command, name, timeout, dir, key, wait, follow, cli.json).await,
         Commands::List {
             status,
             failed,

@@ -53,8 +53,8 @@ impl Database {
             r"
             INSERT INTO jobs (
                 id, name, command, status, project, cwd, pid, exit_code,
-                created_at, started_at, finished_at, timeout_secs, context, idempotency_key
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                created_at, started_at, finished_at, timeout_secs, idempotency_key
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
             ",
             params![
                 job.id,
@@ -69,7 +69,6 @@ impl Database {
                 job.started_at.map(|t| t.to_rfc3339()),
                 job.finished_at.map(|t| t.to_rfc3339()),
                 job.timeout_secs,
-                job.context.as_ref().map(std::string::ToString::to_string),
                 job.idempotency_key,
             ],
         )?;
@@ -222,9 +221,6 @@ impl Database {
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
                 .map(|t| t.with_timezone(&chrono::Utc)),
             timeout_secs: row.get("timeout_secs")?,
-            context: row
-                .get::<_, Option<String>>("context")?
-                .and_then(|s| serde_json::from_str(&s).ok()),
             idempotency_key: row.get("idempotency_key")?,
         })
     }

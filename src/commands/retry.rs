@@ -17,7 +17,6 @@ pub async fn execute(id: String, json: bool) -> Result<()> {
         cwd: job.cwd.to_string_lossy().to_string(),
         project: job.project.to_string_lossy().to_string(),
         timeout_secs: job.timeout_secs,
-        context: job.context.clone(),
         idempotency_key: None, // Don't reuse idempotency key
     };
 

@@ -71,7 +71,6 @@ pub struct Job {
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
     pub timeout_secs: Option<u64>,
-    pub context: Option<serde_json::Value>,
     pub idempotency_key: Option<String>,
 }
 
@@ -91,7 +90,6 @@ impl Job {
             started_at: None,
             finished_at: None,
             timeout_secs: None,
-            context: None,
             idempotency_key: None,
         }
     }
@@ -105,12 +103,6 @@ impl Job {
     #[must_use]
     pub fn with_timeout(mut self, secs: u64) -> Self {
         self.timeout_secs = Some(secs);
-        self
-    }
-
-    #[must_use]
-    pub fn with_context(mut self, context: serde_json::Value) -> Self {
-        self.context = Some(context);
         self
     }
 

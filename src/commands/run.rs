@@ -3,13 +3,14 @@ use crate::core::ipc::{Request, Response};
 use crate::core::{Paths, detect_project, parse_duration};
 use anyhow::Result;
 use std::env;
+use std::path::PathBuf;
 
 #[allow(clippy::fn_params_excessive_bools, clippy::too_many_arguments)]
 pub async fn execute(
     command: String,
     name: Option<String>,
     timeout: Option<String>,
-    context: Option<String>,
+    dir: Option<String>,
     key: Option<String>,
     wait: bool,
     follow: bool,
@@ -18,14 +19,13 @@ pub async fn execute(
     let paths = Paths::new()?;
     paths.ensure_dirs()?;
 
-    let cwd = env::current_dir()?;
+    let cwd = match dir {
+        Some(d) => PathBuf::from(d).canonicalize()?,
+        None => env::current_dir()?,
+    };
     let project = detect_project(&cwd);
 
     let timeout_secs = timeout.as_ref().map(|t| parse_duration(t)).transpose()?;
-    let context_json: Option<serde_json::Value> = context
-        .as_ref()
-        .map(|c| serde_json::from_str(c))
-        .transpose()?;
 
     // Connect to daemon (auto-starts if not running)
     let mut client = DaemonClient::connect_or_start().await?;
@@ -36,7 +36,6 @@ pub async fn execute(
         cwd: cwd.to_string_lossy().to_string(),
         project: project.to_string_lossy().to_string(),
         timeout_secs,
-        context: context_json,
         idempotency_key: key,
     };
 

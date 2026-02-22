@@ -43,10 +43,6 @@ fn show_job_status(db: &Database, paths: &Paths, id: &str, json: bool) -> Result
     if let Some(code) = job.exit_code {
         println!("Exit:     {code}");
     }
-    if let Some(ctx) = &job.context {
-        println!("Context:  {ctx}");
-    }
-
     let log_path = paths.log_file(&job.id);
     if log_path.exists() {
         use std::io::BufRead;
