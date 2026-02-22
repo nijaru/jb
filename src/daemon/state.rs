@@ -1,14 +1,13 @@
-use crate::core::{Database, Job, Paths, Status, kill_process_group};
+use crate::core::{kill_process_group, Database, Job, Paths, Status};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::watch;
 use tracing::warn;
 
 pub struct RunningJob {
     pub pid: u32,
     pub stop_tx: watch::Sender<bool>,
-    pub completion_tx: Option<oneshot::Sender<()>>,
 }
 
 pub struct DaemonState {
@@ -64,16 +63,18 @@ impl DaemonState {
 
     /// Interrupt all running jobs on graceful shutdown.
     pub fn interrupt_running_jobs(&self) {
-        let mut running = self.running_jobs.lock().unwrap();
-        let db = self.db.lock().unwrap();
+        // Drain the running jobs map before acquiring the DB lock to avoid
+        // potential deadlock if another path acquires these locks in opposite order.
+        let jobs: Vec<(String, RunningJob)> = {
+            let mut running = self.running_jobs.lock().unwrap();
+            running.drain().collect()
+        };
 
-        for (id, job) in running.drain() {
+        let db = self.db.lock().unwrap();
+        for (id, job) in jobs {
             warn!("Interrupting job {id} on shutdown");
-            // Signal the job to stop (will break out of select!)
             let _ = job.stop_tx.send(true);
-            // Kill the entire process group (not just the shell wrapper)
             kill_process_group(job.pid, false);
-            // Mark as interrupted in database
             let _ = db.update_finished(&id, Status::Interrupted, None);
         }
     }

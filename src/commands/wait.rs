@@ -48,7 +48,9 @@ pub async fn execute(id: String, timeout: Option<String>) -> Result<()> {
     let start = Instant::now();
 
     loop {
-        let current = db.get(&job.id)?.unwrap();
+        let current = db
+            .get(&job.id)?
+            .ok_or_else(|| anyhow::anyhow!("job {} disappeared", job.id))?;
 
         if current.status.is_terminal() {
             handle_terminal(&current);

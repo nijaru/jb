@@ -59,11 +59,10 @@ pub async fn execute(
 
             Ok(())
         }
+        Response::UserError(e) => {
+            anyhow::bail!(crate::core::UserError::new(e));
+        }
         Response::Error(e) => {
-            // User-recoverable errors should exit cleanly
-            if e.starts_with("Name '") && e.contains("is in use") {
-                anyhow::bail!(crate::core::UserError::new(e));
-            }
             anyhow::bail!("{e}");
         }
         _ => {

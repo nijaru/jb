@@ -170,19 +170,16 @@ async fn handle_request(
             timeout_secs,
             context,
             idempotency_key,
-        } => {
-            spawner::spawn_job(
-                state,
-                command,
-                name,
-                cwd,
-                project,
-                timeout_secs,
-                context,
-                idempotency_key,
-            )
-            .await
-        }
+        } => spawner::spawn_job(
+            state,
+            command,
+            name,
+            cwd,
+            project,
+            timeout_secs,
+            context,
+            idempotency_key,
+        ),
 
         Request::Stop { id, force } => match state.get_job(&id) {
             Ok(Some(job)) => {

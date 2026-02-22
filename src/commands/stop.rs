@@ -27,7 +27,9 @@ pub async fn execute(id: String, force: bool, json: bool) -> Result<()> {
         match client.send(request).await? {
             Response::Ok => {
                 if json {
-                    let updated = db.get(&job.id)?.unwrap();
+                    let updated = db
+                        .get(&job.id)?
+                        .ok_or_else(|| anyhow::anyhow!("job {} disappeared", job.short_id()))?;
                     println!("{}", serde_json::to_string(&updated)?);
                 } else {
                     println!("Stopped {}", job.short_id());
@@ -53,7 +55,9 @@ pub async fn execute(id: String, force: bool, json: bool) -> Result<()> {
     }
 
     if json {
-        let updated = db.get(&job.id)?.unwrap();
+        let updated = db
+            .get(&job.id)?
+            .ok_or_else(|| anyhow::anyhow!("job {} disappeared", job.short_id()))?;
         println!("{}", serde_json::to_string(&updated)?);
     } else {
         println!("Stopped {}", job.short_id());

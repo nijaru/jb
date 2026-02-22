@@ -37,6 +37,7 @@ pub enum Response {
     Jobs(Vec<Job>),
     Ok,
     Error(String),
+    UserError(String),
     Pong {
         pid: u32,
         uptime_secs: u64,

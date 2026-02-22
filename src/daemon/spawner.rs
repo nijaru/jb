@@ -7,12 +7,11 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::fs::File;
 use tokio::process::Command;
-use tokio::sync::{oneshot, watch};
+use tokio::sync::watch;
 use tracing::{error, info, warn};
 
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::unused_async)]
-pub async fn spawn_job(
+pub fn spawn_job(
     state: &Arc<DaemonState>,
     command: String,
     name: Option<String>,
@@ -37,7 +36,7 @@ pub async fn spawn_job(
         if let Some(ref n) = name
             && let Ok(Some(running)) = db.name_in_use(n)
         {
-            return Response::Error(format!(
+            return Response::UserError(format!(
                 "Name '{}' is in use by running job {}",
                 n,
                 running.short_id()
@@ -82,10 +81,14 @@ pub async fn spawn_job(
     let job_id = job.id.clone();
     let state_clone = state.clone();
 
-    // Spawn the process
+    // Spawn the process; on failure mark the job as failed in the DB
     tokio::spawn(async move {
         if let Err(e) = run_job(&state_clone, job_id.clone(), command, cwd, timeout_secs).await {
-            error!("Job {} failed to spawn: {}", job_id, e);
+            error!("Job {} failed: {}", job_id, e);
+            let db = state_clone.db.lock().unwrap();
+            if let Err(db_err) = db.update_finished(&job_id, Status::Failed, None) {
+                error!("Failed to mark job {} as failed: {}", job_id, db_err);
+            }
         }
     });
 
@@ -95,15 +98,6 @@ pub async fn spawn_job(
 
 /// Time to wait for graceful shutdown before SIGKILL
 const GRACEFUL_SHUTDOWN_SECS: u64 = 2;
-
-/// Signal completion to any waiting callers
-fn signal_completion(job: Option<RunningJob>) {
-    if let Some(j) = job
-        && let Some(tx) = j.completion_tx
-    {
-        let _ = tx.send(());
-    }
-}
 
 #[allow(clippy::too_many_lines)]
 async fn run_job(
@@ -129,7 +123,9 @@ async fn run_job(
         .process_group(0) // Create new process group (setsid equivalent)
         .spawn()?;
 
-    let pid = child.id().unwrap_or(0);
+    let pid = child
+        .id()
+        .ok_or_else(|| anyhow::anyhow!("failed to get PID of spawned process"))?;
 
     // Update DB with running status
     {
@@ -139,21 +135,12 @@ async fn run_job(
 
     info!("Job {} started with PID {}", job_id, pid);
 
-    // Create channels for completion notification and stop signal
-    let (completion_tx, _completion_rx) = oneshot::channel();
     let (stop_tx, mut stop_rx) = watch::channel(false);
 
     // Track running job
     {
         let mut running = state.running_jobs.lock().unwrap();
-        running.insert(
-            job_id.clone(),
-            RunningJob {
-                pid,
-                stop_tx,
-                completion_tx: Some(completion_tx),
-            },
-        );
+        running.insert(job_id.clone(), RunningJob { pid, stop_tx });
     }
 
     // Event-based monitoring with tokio::select!
@@ -208,25 +195,22 @@ async fn run_job(
     };
 
     // Remove from running jobs
-    let removed = {
+    {
         let mut running = state.running_jobs.lock().unwrap();
-        running.remove(&job_id)
-    };
+        running.remove(&job_id);
+    }
 
     // Handle result
     match result {
         JobResult::Stopped => {
-            // stop_job already updated DB, just signal completion
-            signal_completion(removed);
+            // stop_job already updated DB
         }
         JobResult::Timeout => {
-            // Update DB with timeout status
-            {
-                let db = state.db.lock().unwrap();
-                let _ = db.update_finished(&job_id, Status::Stopped, None);
+            let db = state.db.lock().unwrap();
+            if let Err(e) = db.update_finished(&job_id, Status::Stopped, None) {
+                error!("Failed to update job {} status after timeout: {}", job_id, e);
             }
             info!("Job {} timed out", job_id);
-            signal_completion(removed);
         }
         JobResult::Completed(exit_status) => {
             let (status, exit_code) = match exit_status {
@@ -237,10 +221,14 @@ async fn run_job(
 
             {
                 let db = state.db.lock().unwrap();
-                let _ = db.update_finished(&job_id, status, exit_code);
+                if let Err(e) = db.update_finished(&job_id, status, exit_code) {
+                    error!(
+                        "Failed to update job {} status after completion: {}",
+                        job_id, e
+                    );
+                }
             }
             info!("Job {} finished with status {:?}", job_id, status);
-            signal_completion(removed);
         }
     }
 
@@ -270,10 +258,11 @@ pub fn stop_job(state: &Arc<DaemonState>, job_id: &str, force: bool) -> Response
     // Kill the entire process group (not just the shell wrapper)
     kill_process_group(pid, force);
 
-    // Update DB
     {
         let db = state.db.lock().unwrap();
-        let _ = db.update_finished(job_id, Status::Stopped, None);
+        if let Err(e) = db.update_finished(job_id, Status::Stopped, None) {
+            error!("Failed to update job {} status after stop: {}", job_id, e);
+        }
     }
 
     info!("Job {} stopped", job_id);

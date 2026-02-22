@@ -49,7 +49,10 @@ fn show_job_status(db: &Database, paths: &Paths, id: &str, json: bool) -> Result
 
     let log_path = paths.log_file(&job.id);
     if log_path.exists() {
-        let lines = std::fs::read_to_string(&log_path)?.lines().count();
+        use std::io::BufRead;
+        let lines = std::io::BufReader::new(std::fs::File::open(&log_path)?)
+            .lines()
+            .count();
         println!("Output:   {lines} lines");
     }
 

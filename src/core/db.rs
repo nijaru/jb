@@ -3,6 +3,7 @@ use crate::core::error::UserError;
 use crate::core::job::{Job, Status};
 use anyhow::{Result, bail};
 use rand::Rng;
+use tracing::warn;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::PathBuf;
 
@@ -79,7 +80,7 @@ impl Database {
         let job = self
             .conn
             .query_row(
-                "SELECT * FROM jobs WHERE id = ?1 OR id LIKE ?2 || '%'",
+                "SELECT * FROM jobs WHERE id = ?1 OR id LIKE ?2 || '%' ORDER BY created_at DESC LIMIT 1",
                 params![id, id],
                 Self::row_to_job,
             )
@@ -185,7 +186,7 @@ impl Database {
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(before.to_rfc3339())];
 
         if let Some(s) = status {
-            sql = String::from("DELETE FROM jobs WHERE created_at < ?1 AND status = ?2");
+            sql = String::from("DELETE FROM jobs WHERE created_at < ?1 AND status = ?2 AND status NOT IN ('running', 'pending')");
             params_vec.push(Box::new(s.as_str().to_string()));
         }
 
@@ -294,13 +295,22 @@ impl Database {
     /// Check for orphaned jobs (running/pending but process dead) and mark as interrupted.
     /// Called on DB open to handle daemon crashes.
     pub fn recover_orphans(&self) {
-        let orphans = self
-            .list(Some(Status::Running), None)
-            .unwrap_or_default()
-            .into_iter()
-            .chain(self.list(Some(Status::Pending), None).unwrap_or_default());
+        let running = match self.list(Some(Status::Running), None) {
+            Ok(jobs) => jobs,
+            Err(e) => {
+                warn!("Failed to list running jobs for orphan recovery: {e}");
+                return;
+            }
+        };
+        let pending = match self.list(Some(Status::Pending), None) {
+            Ok(jobs) => jobs,
+            Err(e) => {
+                warn!("Failed to list pending jobs for orphan recovery: {e}");
+                return;
+            }
+        };
 
-        for job in orphans {
+        for job in running.into_iter().chain(pending) {
             if let Some(pid) = job.pid
                 && is_process_alive(pid)
             {
@@ -308,7 +318,9 @@ impl Database {
                 continue;
             }
             // Process dead or no PID - mark as interrupted
-            let _ = self.update_finished(&job.id, Status::Interrupted, None);
+            if let Err(e) = self.update_finished(&job.id, Status::Interrupted, None) {
+                warn!("Failed to mark orphaned job {} as interrupted: {e}", job.id);
+            }
         }
     }
 }

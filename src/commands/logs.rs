@@ -4,8 +4,8 @@ use colored::Colorize;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 type WriterFn = Box<dyn FnOnce(&mut dyn Write) -> Result<()>>;
@@ -82,14 +82,16 @@ fn output_with_pager<F>(content_fn: F) -> Result<()>
 where
     F: FnOnce() -> Box<dyn FnOnce(&mut dyn Write) -> Result<()>>,
 {
-    let pager = std::env::var("PAGER").unwrap_or_else(|_| "less".to_string());
-    let pager_args: Vec<&str> = if pager == "less" {
-        vec!["-R"] // Enable ANSI color support
-    } else {
-        vec![]
-    };
+    let pager_env = std::env::var("PAGER").unwrap_or_else(|_| "less".to_string());
+    let mut parts = pager_env.split_whitespace();
+    let pager_cmd = parts.next().unwrap_or("less");
+    let mut pager_args: Vec<&str> = parts.collect();
+    // Always pass -R to less so ANSI colors render correctly
+    if pager_cmd == "less" && !pager_args.contains(&"-R") {
+        pager_args.push("-R");
+    }
 
-    let mut child = match Command::new(&pager)
+    let mut child = match Command::new(pager_cmd)
         .args(&pager_args)
         .stdin(Stdio::piped())
         .spawn()
@@ -318,7 +320,7 @@ fn follow_logs(db: &Database, _paths: &Paths, job_id: &str, log_path: &Path) -> 
 fn ctrlc_handler<F: Fn() + Send + Sync + 'static>(handler: F) {
     #[cfg(unix)]
     {
-        use nix::sys::signal::{SigHandler, Signal, signal};
+        use nix::sys::signal::{signal, SigHandler, Signal};
 
         static HANDLER: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> =
             std::sync::OnceLock::new();

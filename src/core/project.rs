@@ -1,8 +1,8 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[must_use]
-pub fn detect_project(cwd: &PathBuf) -> PathBuf {
+pub fn detect_project(cwd: &Path) -> PathBuf {
     if let Ok(output) = Command::new("git")
         .args(["rev-parse", "--show-toplevel"])
         .current_dir(cwd)
@@ -12,5 +12,5 @@ pub fn detect_project(cwd: &PathBuf) -> PathBuf {
     {
         return PathBuf::from(path.trim());
     }
-    cwd.clone()
+    cwd.to_path_buf()
 }
