@@ -1,4 +1,4 @@
-use crate::core::{kill_process_group, Database, Job, Paths, Status};
+use crate::core::{Database, Job, Paths, Status, kill_process_group};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;

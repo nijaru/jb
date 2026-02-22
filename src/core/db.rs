@@ -3,9 +3,9 @@ use crate::core::error::UserError;
 use crate::core::job::{Job, Status};
 use anyhow::{Result, bail};
 use rand::Rng;
-use tracing::warn;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::PathBuf;
+use tracing::warn;
 
 pub struct Database {
     conn: Connection,
@@ -186,7 +186,9 @@ impl Database {
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(before.to_rfc3339())];
 
         if let Some(s) = status {
-            sql = String::from("DELETE FROM jobs WHERE created_at < ?1 AND status = ?2 AND status NOT IN ('running', 'pending')");
+            sql = String::from(
+                "DELETE FROM jobs WHERE created_at < ?1 AND status = ?2 AND status NOT IN ('running', 'pending')",
+            );
             params_vec.push(Box::new(s.as_str().to_string()));
         }
 

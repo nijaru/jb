@@ -1,4 +1,4 @@
-use crate::core::{parse_duration, Database, Paths, Status};
+use crate::core::{Database, Paths, Status, parse_duration};
 use anyhow::Result;
 use chrono::Utc;
 
@@ -26,10 +26,10 @@ pub fn execute(older_than: &str, status: Option<String>, all: bool) -> Result<()
         for entry in std::fs::read_dir(&log_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                if db.get(stem)?.is_none() {
-                    let _ = std::fs::remove_file(&path);
-                }
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+                && db.get(stem)?.is_none()
+            {
+                let _ = std::fs::remove_file(&path);
             }
         }
     }

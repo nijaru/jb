@@ -208,7 +208,10 @@ async fn run_job(
         JobResult::Timeout => {
             let db = state.db.lock().unwrap();
             if let Err(e) = db.update_finished(&job_id, Status::Stopped, None) {
-                error!("Failed to update job {} status after timeout: {}", job_id, e);
+                error!(
+                    "Failed to update job {} status after timeout: {}",
+                    job_id, e
+                );
             }
             info!("Job {} timed out", job_id);
         }

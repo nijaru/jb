@@ -4,8 +4,8 @@ use colored::Colorize;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 type WriterFn = Box<dyn FnOnce(&mut dyn Write) -> Result<()>>;
@@ -320,7 +320,7 @@ fn follow_logs(db: &Database, _paths: &Paths, job_id: &str, log_path: &Path) -> 
 fn ctrlc_handler<F: Fn() + Send + Sync + 'static>(handler: F) {
     #[cfg(unix)]
     {
-        use nix::sys::signal::{signal, SigHandler, Signal};
+        use nix::sys::signal::{SigHandler, Signal, signal};
 
         static HANDLER: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> =
             std::sync::OnceLock::new();
