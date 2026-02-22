@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tracing::info;
 
 pub async fn run() -> Result<()> {
-    let paths = Paths::new();
+    let paths = Paths::new()?;
     paths.ensure_dirs()?;
 
     // Check if another daemon is running

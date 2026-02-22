@@ -4,7 +4,7 @@ use crate::core::{Database, Paths, Status, kill_process_group};
 use anyhow::Result;
 
 pub async fn execute(id: String, force: bool, json: bool) -> Result<()> {
-    let paths = Paths::new();
+    let paths = Paths::new()?;
     let db = Database::open(&paths)?;
     let job = db.resolve(&id)?;
 

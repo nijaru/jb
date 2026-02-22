@@ -5,7 +5,7 @@ use anyhow::Result;
 use std::time::{Duration, Instant};
 
 pub async fn execute(id: String, timeout: Option<String>) -> Result<()> {
-    let paths = Paths::new();
+    let paths = Paths::new()?;
     let db = Database::open(&paths)?;
 
     // Check for orphaned jobs (dead processes still marked running)

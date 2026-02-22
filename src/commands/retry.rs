@@ -4,7 +4,7 @@ use crate::core::{Database, Paths};
 use anyhow::Result;
 
 pub async fn execute(id: String, json: bool) -> Result<()> {
-    let paths = Paths::new();
+    let paths = Paths::new()?;
     let db = Database::open(&paths)?;
     let job = db.resolve(&id)?;
 
@@ -30,6 +30,7 @@ pub async fn execute(id: String, json: bool) -> Result<()> {
             }
             Ok(())
         }
+        Response::UserError(e) => anyhow::bail!(crate::core::UserError::new(e)),
         Response::Error(e) => anyhow::bail!("{e}"),
         _ => anyhow::bail!("Unexpected response from daemon"),
     }

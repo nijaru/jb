@@ -6,12 +6,11 @@ pub struct Paths {
 }
 
 impl Paths {
-    #[must_use]
-    pub fn new() -> Self {
+    pub fn new() -> anyhow::Result<Self> {
         let root = dirs::home_dir()
-            .expect("could not determine home directory")
+            .ok_or_else(|| anyhow::anyhow!("could not determine home directory"))?
             .join(".jb");
-        Self { root }
+        Ok(Self { root })
     }
 
     /// Create Paths with a custom root directory (useful for testing)
@@ -50,11 +49,5 @@ impl Paths {
         std::fs::create_dir_all(&self.root)?;
         std::fs::create_dir_all(self.logs_dir())?;
         Ok(())
-    }
-}
-
-impl Default for Paths {
-    fn default() -> Self {
-        Self::new()
     }
 }

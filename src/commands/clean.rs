@@ -1,9 +1,9 @@
-use crate::core::{Database, Paths, Status, parse_duration};
+use crate::core::{parse_duration, Database, Paths, Status};
 use anyhow::Result;
 use chrono::Utc;
 
 pub fn execute(older_than: &str, status: Option<String>, all: bool) -> Result<()> {
-    let paths = Paths::new();
+    let paths = Paths::new()?;
     let db = Database::open(&paths)?;
 
     let duration_secs = parse_duration(older_than)?;
@@ -18,19 +18,18 @@ pub fn execute(older_than: &str, status: Option<String>, all: bool) -> Result<()
 
     let count = db.delete_old(before, status_filter)?;
 
-    // Clean up orphaned log files
+    // Clean up orphaned log files. Query the DB per-file rather than taking a
+    // snapshot upfront, so a job spawned between the delete and the scan can't
+    // have its log removed before the daemon opens it.
     let log_dir = paths.logs_dir();
     if log_dir.exists() {
-        let jobs = db.list(None, None)?;
-        let job_ids: std::collections::HashSet<_> = jobs.iter().map(|j| j.id.as_str()).collect();
-
         for entry in std::fs::read_dir(&log_dir)? {
             let entry = entry?;
             let path = entry.path();
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str())
-                && !job_ids.contains(stem)
-            {
-                let _ = std::fs::remove_file(&path);
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                if db.get(stem)?.is_none() {
+                    let _ = std::fs::remove_file(&path);
+                }
             }
         }
     }

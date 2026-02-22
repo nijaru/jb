@@ -15,7 +15,7 @@ pub async fn execute(
     follow: bool,
     json: bool,
 ) -> Result<()> {
-    let paths = Paths::new();
+    let paths = Paths::new()?;
     paths.ensure_dirs()?;
 
     let cwd = env::current_dir()?;

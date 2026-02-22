@@ -11,7 +11,7 @@ pub fn execute(
     all: bool,
     json: bool,
 ) -> Result<()> {
-    let paths = Paths::new();
+    let paths = Paths::new()?;
     let db = Database::open(&paths)?;
 
     // Check for orphaned jobs (dead processes still marked running)

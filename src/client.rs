@@ -20,7 +20,7 @@ impl DaemonClient {
 
     /// Connect to daemon, starting it if not running
     pub async fn connect_or_start() -> Result<Self> {
-        let paths = Paths::new();
+        let paths = Paths::new()?;
 
         // Try connecting first
         if let Ok(client) = Self::connect_to(paths.socket()).await {
