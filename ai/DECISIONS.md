@@ -1,5 +1,45 @@
 # Decisions
 
+## 2026-02-22: Response::UserError for structured IPC errors
+
+**Context**: `spawn_job` returned `Response::Error("Name 'X' is in use by running job Y")`. The client in `run.rs` detected this by string-matching the prose message with `e.starts_with("Name '") && e.contains("is in use")`. Any rewording of the message would silently break the classification.
+
+**Decision**: Add `Response::UserError(String)` variant to the IPC protocol. Daemon returns `UserError` for errors the user can act on (currently: name in use). Client pattern-matches the variant, not the message text.
+
+**Rationale**:
+
+- Structural — variant determines behavior, message is display-only
+- Extensible — future user-recoverable errors use the same path
+- Cheap — one new enum variant, no protocol version bump needed (same binary)
+
+---
+
+## 2026-02-22: Paths::new() returns Result
+
+**Context**: `dirs::home_dir()` can return `None` in containers or minimal environments where HOME is unset. The original code called `.expect()`, causing a panic with an opaque message on every command.
+
+**Decision**: `Paths::new()` returns `anyhow::Result<Self>`. All 10 callers propagate with `?`. `Default` impl removed (callers all use explicit construction).
+
+**Rationale**:
+
+- Panic is wrong for a predictable, recoverable error condition
+- All callers already propagate `Result` — adding `?` is zero friction
+- Error message ("could not determine home directory") surfaces cleanly to the user
+
+---
+
+## 2026-02-22: Per-file DB query in jb clean log sweep
+
+**Context**: `jb clean` took a DB snapshot then scanned the log directory, deleting files whose stem wasn't in the snapshot. A job spawned between the snapshot and the scan would have its log file deleted (TOCTOU race).
+
+**Decision**: Query `db.get(stem)` per file instead of comparing against a snapshot.
+
+**Rationale**:
+
+- Eliminates the race window entirely
+- Orphaned log files are rare so the extra queries are negligible
+- Simpler code — no HashSet construction or lifetime management
+
 ## 2024-12-16: Renamed from `job` to `jb`
 
 **Context**: Crate name `job` already exists on crates.io.

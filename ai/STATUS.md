@@ -1,54 +1,38 @@
 # Status
 
-**Version**: 0.0.11 (released)
-**Phase**: Name uniqueness
+**Version**: 0.0.13 (released) — 0.0.14 pending
+**Phase**: Post-review correctness fixes
 
-## Current Work
+## Current State
 
-| Task                       | Status    | Notes                                            |
-| -------------------------- | --------- | ------------------------------------------------ |
-| Unique names while running | Completed | Can't create job with name if another is running |
-| Name resolves to latest    | Completed | `jb logs test` → most recent job named "test"    |
-| Clean error messages       | Completed | UserError type, no stack traces for user errors  |
+0.0.14 is ready to release. All fixes committed, tests passing (55/55), clean build.
 
-## v0.0.10 (released)
+## Changes in 0.0.14 (unreleased)
 
-| Task                           | Status    | Notes                                   |
-| ------------------------------ | --------- | --------------------------------------- |
-| Event-based job monitoring     | Completed | `tokio::select!` replaces 100ms polling |
-| Graceful timeout escalation    | Completed | SIGTERM → 2s wait → SIGKILL             |
-| Efficient `--tail` for logs    | Completed | Seek-based, works with GB files         |
-| Deduplicate kill_process_group | Completed | Moved to `core/` shared module          |
+| Fix                                              | Severity | File             |
+| ------------------------------------------------ | -------- | ---------------- |
+| Prefix match non-deterministic                   | ERROR    | db.rs            |
+| clean --status running deletes live jobs         | ERROR    | db.rs            |
+| Spawn failure leaves job Pending forever         | ERROR    | spawner.rs       |
+| DB update errors silently swallowed              | ERROR    | spawner.rs       |
+| PID 0 stored on spawn edge case                  | ERROR    | spawner.rs       |
+| unwrap() panic in stop/wait on concurrent clean  | ERROR    | stop.rs, wait.rs |
+| Paths::new() panics if HOME unset                | WARN     | paths.rs         |
+| Log file race in jb clean                        | WARN     | clean.rs         |
+| Mutex deadlock surface in interrupt_running_jobs | WARN     | state.rs         |
+| Dead oneshot completion channel                  | WARN     | spawner.rs       |
+| Response::UserError for structured IPC errors    | WARN     | ipc.rs, run.rs   |
+| recover_orphans silently swallows errors         | WARN     | db.rs            |
+| BufReader line count in status                   | NIT      | status.rs        |
+| PAGER="less -R" split                            | NIT      | logs.rs          |
+| &PathBuf → &Path                                 | NIT      | project.rs       |
 
-## v0.0.9 (released)
+## To Release 0.0.14
 
-| Task                         | Status    | Notes                                   |
-| ---------------------------- | --------- | --------------------------------------- |
-| Process group signaling      | Completed | `killpg` for all job termination        |
-| No more `exec` workaround    | Completed | `source .env && ./app` works correctly  |
-| Timeout kills process group  | Completed | `-t` flag kills all children on timeout |
-| Daemon shutdown kills groups | Completed | Graceful interrupt signals entire group |
-| Smart orphan recovery        | Completed | Checks PID liveness before marking dead |
-| Safety: pid=0 check          | Completed | Prevents accidental self-kill           |
-
-## v0.0.8 (released)
-
-| Task                          | Status    | Notes                                    |
-| ----------------------------- | --------- | ---------------------------------------- |
-| Add `ls` alias for list       | Completed | `jb ls` works, shown in help             |
-| Add `-t` flag for clean       | Completed | `jb clean -t 1d` for --older-than        |
-| Add `-a` flag for clean       | Completed | `jb clean -a` for --all, matches list    |
-| Logs --follow DB optimization | Completed | No longer reopens DB every poll          |
-| Add `db.resolve()` helper     | Completed | Deduplicated job resolution code         |
-| Add `db.count()` method       | Completed | Efficient count without loading all jobs |
-
-## v0.0.7 (released)
-
-| Feature                   | Status    | Notes                                     |
-| ------------------------- | --------- | ----------------------------------------- |
-| Graceful daemon shutdown  | Completed | SIGTERM/SIGINT handled                    |
-| Interrupt running on exit | Completed | Jobs marked interrupted, processes killed |
-| Socket/PID cleanup        | Completed | Files removed on exit                     |
+1. Bump version in Cargo.toml: `0.0.13` → `0.0.14`
+2. Update CHANGELOG.md: move Unreleased to `[0.0.14] - <date>`
+3. `git tag v0.0.14 && git push && git push --tags`
+4. Wait for CI, then update Homebrew tap checksum
 
 ## Platforms
 

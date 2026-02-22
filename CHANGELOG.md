@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+
+- **Non-deterministic job resolution by prefix** — prefix match query now always returns the most recently created job
+- **`jb clean --status running` could delete running jobs** — non-terminal guard was dropped when a status filter was applied
+- **Jobs stuck in Pending on spawn failure** — if process spawn fails (bad cwd, permission denied on log file), job is now marked Failed instead of left Pending forever
+- **DB status updates silently swallowed** — `update_finished` errors in job result handler now logged rather than discarded with `let _ =`
+- **PID 0 stored on spawn edge case** — propagates error instead of writing sentinel value that breaks orphan recovery
+- **Panic in `jb stop`/`jb wait` with concurrent `jb clean`** — `unwrap()` on re-fetched job replaced with proper error
+- **`Paths::new()` panicked if HOME unset** — now returns `Result` and propagates a clean error
+- **Log file race in `jb clean`** — per-file DB query replaces snapshot HashSet, eliminating window where newly spawned job's log could be deleted
+
+### Changed
+
+- `Response::UserError` IPC variant for user-recoverable errors (name in use) — previously relied on string-matching prose error messages
+- `spawn_job` is now a regular fn (was incorrectly marked `async`)
+- Mutex acquisition order in shutdown fixed to prevent potential deadlock
+- Dead oneshot completion channel removed from `RunningJob`
+- `recover_orphans` logs errors via `warn!` instead of silently discarding
+- `jb status` line count uses `BufReader` instead of loading full log into memory
+- `PAGER` env var split on whitespace — `PAGER="less -R"` now works correctly
+
+## [0.0.13] - 2026-01-06
+
+### Added
+
+- **Log colorization** — `jb logs` colorizes output by log level (error/warn/info/debug) when writing to a terminal; respects `NO_COLOR`
+- `jb run --follow` and `jb logs --follow` print colorized output while streaming
+
+### Fixed
+
+- Race condition in follow mode where orphan recovery could interfere with the running job check
+
 ## [0.0.12] - 2025-12-23
 
 ### Removed
