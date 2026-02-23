@@ -219,55 +219,14 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/') && !inputs.dry-run
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: nijaru/homebrew-tap
-          token: ${{ secrets.TAP_UPDATE_TOKEN }}
-
-      - name: Download checksums
+      - name: Trigger tap update
         run: |
-          gh release download ${{ needs.verify.outputs.tag }} \
-            --repo nijaru/jb \
-            --pattern '*.sha256'
+          gh api repos/nijaru/homebrew-tap/dispatches \
+            --method POST \
+            --field event_type=release-published \
+            --field client_payload='{"version":"${{ needs.verify.outputs.version }}"}'
         env:
-          GH_TOKEN: ${{ github.token }}
-
-      - name: Update formula
-        run: |
-          TAG=${{ needs.verify.outputs.tag }}
-          VERSION=${{ needs.verify.outputs.version }}
-
-          MAC_ARM64_SHA=$(cat jb-aarch64-apple-darwin.tar.gz.sha256 | awk '{print $1}')
-          LINUX_X64_SHA=$(cat jb-x86_64-unknown-linux-gnu.tar.gz.sha256 | awk '{print $1}')
-          LINUX_ARM64_SHA=$(cat jb-aarch64-unknown-linux-gnu.tar.gz.sha256 | awk '{print $1}')
-          SOURCE_SHA=$(curl -sL "https://github.com/nijaru/jb/archive/refs/tags/$TAG.tar.gz" | sha256sum | awk '{print $1}')
-
-          # Update version and URLs
-          sed -i "s/version \".*\"/version \"$VERSION\"/" Formula/jb.rb
-          sed -i "s|/v[0-9.]*[^/]*/jb-|/$TAG/jb-|g" Formula/jb.rb
-          sed -i "s|/v[0-9.]*[^/]*.tar.gz|/$TAG.tar.gz|g" Formula/jb.rb
-
-          # Replace sha256 values in order: mac-arm64, mac-intel source, linux-arm64, linux-x64
-          python3 -c "
-import re, os
-content = open('Formula/jb.rb').read()
-shas = [os.environ['MAC_ARM64_SHA'], os.environ['SOURCE_SHA'], os.environ['LINUX_ARM64_SHA'], os.environ['LINUX_X64_SHA']]
-count = [0]
-def replace(m):
-    result = m.group(1) + shas[count[0]] + m.group(2)
-    count[0] += 1
-    return result
-new_content = re.sub(r'(sha256 \")[0-9a-f]+(\")', replace, content)
-open('Formula/jb.rb', 'w').write(new_content)
-"
-
-      - name: Commit and push
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/jb.rb
-          git commit -m "chore: update jb to ${{ needs.verify.outputs.tag }}"
-          git push
+          GH_TOKEN: ${{ secrets.TAP_UPDATE_TOKEN }}
 
   # ============================================================================
   # STAGE 6: Finalize release
