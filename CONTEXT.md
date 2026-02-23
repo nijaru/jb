@@ -45,10 +45,9 @@ tk ls                       # View tasks
 ## Releasing
 
 ```bash
-# 1. Bump version in Cargo.toml
+# 1. Bump version in Cargo.toml and CHANGELOG.md
 # 2. Commit and push
-git tag v0.0.X && git push && git push --tags
-# 3. Wait for CI, then update Homebrew tap checksum
+git tag -a v0.0.X -m "v0.0.X" && git push && git push --tags
 ```
 
-Workflow triggers on tag push (`v*`). Also supports `workflow_dispatch` for dry-run builds.
+Tag push triggers release workflow: verify → build → create draft release → publish crates.io → dispatch homebrew tap update → finalize (undraft). Also supports `workflow_dispatch` for manual runs or dry-run builds.
