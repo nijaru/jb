@@ -63,7 +63,11 @@ pub async fn execute(id: String, force: bool, json: bool) -> Result<()> {
 
 /// Direct stop path: used when daemon is unreachable or job was pre-daemon.
 /// Pending jobs: mark Stopped in DB. Running jobs: kill process group + mark Stopped.
-fn stop_without_daemon(job: &crate::core::Job, db: &crate::core::Database, force: bool) -> Result<()> {
+fn stop_without_daemon(
+    job: &crate::core::Job,
+    db: &crate::core::Database,
+    force: bool,
+) -> Result<()> {
     if job.status == Status::Pending {
         db.update_status(&job.id, Status::Stopped)?;
     } else if let Some(pid) = job.pid {

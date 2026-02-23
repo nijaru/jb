@@ -125,7 +125,10 @@ mod tests {
         let count = delete_jobs("7d", None, false, &db, &paths).unwrap();
 
         assert_eq!(count, 0);
-        assert!(db.get("abc1").unwrap().is_some(), "recent job should survive");
+        assert!(
+            db.get("abc1").unwrap().is_some(),
+            "recent job should survive"
+        );
     }
 
     #[test]
@@ -138,7 +141,10 @@ mod tests {
 
         assert_eq!(count, 1, "only completed should be deleted");
         assert!(db.get("abc1").unwrap().is_none());
-        assert!(db.get("abc2").unwrap().is_some(), "running job should survive");
+        assert!(
+            db.get("abc2").unwrap().is_some(),
+            "running job should survive"
+        );
     }
 
     #[test]

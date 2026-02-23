@@ -465,7 +465,10 @@ mod tests {
             Response::Job(j) => j.id,
             _ => panic!("expected Job"),
         };
-        assert_eq!(id1, id2, "second spawn with same key should return the original job");
+        assert_eq!(
+            id1, id2,
+            "second spawn with same key should return the original job"
+        );
     }
 
     #[tokio::test]
@@ -483,7 +486,10 @@ mod tests {
             None,
             None,
         );
-        assert!(matches!(resp1, Response::Job(_)), "first spawn should succeed");
+        assert!(
+            matches!(resp1, Response::Job(_)),
+            "first spawn should succeed"
+        );
 
         let resp2 = spawn_job(
             &state,
@@ -515,7 +521,10 @@ mod tests {
         assert!(state.running_count() > 0, "job should be running by now");
 
         let resp = stop_job(&state, &id, true);
-        assert!(matches!(resp, Response::Ok), "stop should succeed, got {resp:?}");
+        assert!(
+            matches!(resp, Response::Ok),
+            "stop should succeed, got {resp:?}"
+        );
 
         let status = poll_terminal(&state, &id).await;
         assert_eq!(status, Status::Stopped);
@@ -527,7 +536,10 @@ mod tests {
         let state = test_state(&tmp);
 
         let resp = stop_job(&state, "zzzz", false);
-        assert!(matches!(resp, Response::Error(_)), "stopping missing job should error");
+        assert!(
+            matches!(resp, Response::Error(_)),
+            "stopping missing job should error"
+        );
     }
 
     #[tokio::test]
