@@ -221,10 +221,9 @@ jobs:
     steps:
       - name: Trigger tap update
         run: |
-          gh api repos/nijaru/homebrew-tap/dispatches \
-            --method POST \
-            --field event_type=release-published \
-            --field client_payload='{"version":"${{ needs.verify.outputs.version }}"}'
+          printf '{"event_type":"release-published","client_payload":{"version":"%s"}}' \
+            "${{ needs.verify.outputs.version }}" | \
+            gh api repos/nijaru/homebrew-tap/dispatches --method POST --input -
         env:
           GH_TOKEN: ${{ secrets.TAP_UPDATE_TOKEN }}
 
