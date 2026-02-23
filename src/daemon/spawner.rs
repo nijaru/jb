@@ -303,3 +303,257 @@ pub async fn wait_for_job(
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::{Paths, Status};
+    use crate::daemon::state::DaemonState;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tempfile::TempDir;
+
+    fn test_state(tmp: &TempDir) -> Arc<DaemonState> {
+        let paths = Paths::with_root(tmp.path().to_path_buf());
+        paths.ensure_dirs().unwrap();
+        Arc::new(DaemonState::new(&paths).unwrap())
+    }
+
+    fn do_spawn(state: &Arc<DaemonState>, cmd: &str, tmp: &TempDir) -> String {
+        let cwd = tmp.path().to_string_lossy().to_string();
+        match spawn_job(state, cmd.into(), None, cwd.clone(), cwd, None, None) {
+            Response::Job(j) => j.id.clone(),
+            other => panic!("expected Job response, got {other:?}"),
+        }
+    }
+
+    async fn poll_terminal(state: &Arc<DaemonState>, id: &str) -> Status {
+        for _ in 0..100 {
+            if let Ok(Some(job)) = state.get_job(id) {
+                if job.status.is_terminal() {
+                    return job.status;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("job {id} did not reach terminal state within 5s");
+    }
+
+    #[tokio::test]
+    async fn test_spawn_returns_pending_job() {
+        let tmp = TempDir::new().unwrap();
+        let state = test_state(&tmp);
+        let id = do_spawn(&state, "echo hi", &tmp);
+
+        let db = state.db.lock().unwrap();
+        let job = db.get(&id).unwrap().unwrap();
+        assert_eq!(job.status, Status::Pending);
+        assert_eq!(job.command, "echo hi");
+    }
+
+    #[tokio::test]
+    async fn test_job_completes_with_exit_0() {
+        let tmp = TempDir::new().unwrap();
+        let state = test_state(&tmp);
+        let id = do_spawn(&state, "true", &tmp);
+
+        let status = poll_terminal(&state, &id).await;
+        assert_eq!(status, Status::Completed);
+
+        let db = state.db.lock().unwrap();
+        let job = db.get(&id).unwrap().unwrap();
+        assert_eq!(job.exit_code, Some(0));
+        assert!(job.started_at.is_some());
+        assert!(job.finished_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_job_fails_with_nonzero_exit() {
+        let tmp = TempDir::new().unwrap();
+        let state = test_state(&tmp);
+        let id = do_spawn(&state, "false", &tmp);
+
+        let status = poll_terminal(&state, &id).await;
+        assert_eq!(status, Status::Failed);
+
+        let db = state.db.lock().unwrap();
+        let job = db.get(&id).unwrap().unwrap();
+        assert_eq!(job.exit_code, Some(1));
+    }
+
+    #[tokio::test]
+    async fn test_job_output_written_to_log() {
+        let tmp = TempDir::new().unwrap();
+        let state = test_state(&tmp);
+        let id = do_spawn(&state, "echo hello_world_marker", &tmp);
+
+        poll_terminal(&state, &id).await;
+
+        let log_path = state.paths.log_file(&id);
+        let content = std::fs::read_to_string(&log_path).unwrap();
+        assert!(content.contains("hello_world_marker"), "log: {content:?}");
+    }
+
+    #[tokio::test]
+    async fn test_job_pid_recorded() {
+        let tmp = TempDir::new().unwrap();
+        let state = test_state(&tmp);
+        let id = do_spawn(&state, "true", &tmp);
+
+        poll_terminal(&state, &id).await;
+
+        let db = state.db.lock().unwrap();
+        let job = db.get(&id).unwrap().unwrap();
+        assert!(job.pid.is_some(), "pid should be recorded");
+        assert!(job.pid.unwrap() > 0);
+    }
+
+    #[tokio::test]
+    async fn test_spawn_bad_cwd_marks_job_failed() {
+        let tmp = TempDir::new().unwrap();
+        let state = test_state(&tmp);
+        let cwd = tmp.path().to_string_lossy().to_string();
+
+        let resp = spawn_job(
+            &state,
+            "echo hi".into(),
+            None,
+            "/nonexistent/path/that/does/not/exist/ever".into(),
+            cwd,
+            None,
+            None,
+        );
+        let id = match resp {
+            Response::Job(j) => j.id,
+            other => panic!("expected Job, got {other:?}"),
+        };
+
+        let status = poll_terminal(&state, &id).await;
+        assert_eq!(status, Status::Failed);
+    }
+
+    #[tokio::test]
+    async fn test_spawn_idempotency_key_returns_existing_job() {
+        let tmp = TempDir::new().unwrap();
+        let state = test_state(&tmp);
+        let cwd = tmp.path().to_string_lossy().to_string();
+
+        let resp1 = spawn_job(
+            &state,
+            "echo 1".into(),
+            None,
+            cwd.clone(),
+            cwd.clone(),
+            None,
+            Some("mykey".into()),
+        );
+        let resp2 = spawn_job(
+            &state,
+            "echo 2".into(),
+            None,
+            cwd.clone(),
+            cwd.clone(),
+            None,
+            Some("mykey".into()),
+        );
+
+        let id1 = match resp1 {
+            Response::Job(j) => j.id,
+            _ => panic!("expected Job"),
+        };
+        let id2 = match resp2 {
+            Response::Job(j) => j.id,
+            _ => panic!("expected Job"),
+        };
+        assert_eq!(id1, id2, "second spawn with same key should return the original job");
+    }
+
+    #[tokio::test]
+    async fn test_spawn_duplicate_name_returns_user_error() {
+        let tmp = TempDir::new().unwrap();
+        let state = test_state(&tmp);
+        let cwd = tmp.path().to_string_lossy().to_string();
+
+        let resp1 = spawn_job(
+            &state,
+            "sleep 5".into(),
+            Some("myjob".into()),
+            cwd.clone(),
+            cwd.clone(),
+            None,
+            None,
+        );
+        assert!(matches!(resp1, Response::Job(_)), "first spawn should succeed");
+
+        let resp2 = spawn_job(
+            &state,
+            "echo hi".into(),
+            Some("myjob".into()),
+            cwd.clone(),
+            cwd,
+            None,
+            None,
+        );
+        assert!(
+            matches!(resp2, Response::UserError(_)),
+            "duplicate name should return UserError, got {resp2:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stop_job_sets_stopped_status() {
+        let tmp = TempDir::new().unwrap();
+        let state = test_state(&tmp);
+        let id = do_spawn(&state, "sleep 60", &tmp);
+
+        for _ in 0..100 {
+            if state.running_count() > 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(state.running_count() > 0, "job should be running by now");
+
+        let resp = stop_job(&state, &id, true);
+        assert!(matches!(resp, Response::Ok), "stop should succeed, got {resp:?}");
+
+        let status = poll_terminal(&state, &id).await;
+        assert_eq!(status, Status::Stopped);
+    }
+
+    #[tokio::test]
+    async fn test_stop_nonexistent_job_returns_error() {
+        let tmp = TempDir::new().unwrap();
+        let state = test_state(&tmp);
+
+        let resp = stop_job(&state, "zzzz", false);
+        assert!(matches!(resp, Response::Error(_)), "stopping missing job should error");
+    }
+
+    #[tokio::test]
+    async fn test_job_with_name_stored_correctly() {
+        let tmp = TempDir::new().unwrap();
+        let state = test_state(&tmp);
+        let cwd = tmp.path().to_string_lossy().to_string();
+
+        let resp = spawn_job(
+            &state,
+            "true".into(),
+            Some("named-job".into()),
+            cwd.clone(),
+            cwd,
+            None,
+            None,
+        );
+        let id = match resp {
+            Response::Job(j) => j.id,
+            _ => panic!(),
+        };
+
+        poll_terminal(&state, &id).await;
+
+        let db = state.db.lock().unwrap();
+        let job = db.get(&id).unwrap().unwrap();
+        assert_eq!(job.name.as_deref(), Some("named-job"));
+    }
+}
