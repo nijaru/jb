@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.0.14] - 2026-02-23
+
+### Added
+
+- `jb run --dir <path>` to specify working directory (defaults to current directory)
+- `jb` with no arguments now shows the job list
+- Comprehensive test suite: 96 tests (up from 55), covering spawner lifecycle, IPC protocol, and command handler logic
+
+### Removed
+
+- `jb run --context` metadata flag (unused, no workflows depended on it)
+
 ### Fixed
 
 - **Non-deterministic job resolution by prefix** — prefix match query now always returns the most recently created job
