@@ -57,7 +57,7 @@ struct Job {
     cwd: PathBuf,
     pid: Option<u32>,
     exit_code: Option<i32>,
-    // timestamps, timeout, context, idempotency_key...
+    // timestamps, timeout, idempotency_key...
 }
 
 enum Status {

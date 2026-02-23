@@ -44,24 +44,11 @@ tk ls                       # View tasks
 
 ## Releasing
 
-**Always use the release workflow - never publish manually.**
-
 ```bash
 # 1. Bump version in Cargo.toml
 # 2. Commit and push
-# 3. Wait for CI to pass
-gh run list --limit 1
-
-# 4. Trigger release workflow
-gh workflow run release.yml
-
-# 5. Watch release
-gh run watch
+git tag v0.0.X && git push && git push --tags
+# 3. Wait for CI, then update Homebrew tap checksum
 ```
 
-The release workflow:
-
-- Verifies version isn't already published
-- Runs fmt/clippy checks
-- Builds for linux (x86_64, aarch64) and macos (x86_64, aarch64)
-- Publishes via trusted publishing (OIDC)
+Workflow triggers on tag push (`v*`). Also supports `workflow_dispatch` for dry-run builds.

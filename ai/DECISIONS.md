@@ -1,5 +1,17 @@
 # Decisions
 
+## 2026-02-22: Remove --context, add --dir, default to list
+
+**Context**: Post-review cleanup session.
+
+**Decisions**:
+
+- `--context` (JSON metadata on `jb run`): removed. No tests, no workflows used it, and storing arbitrary JSON blobs in a job manager adds coupling with no concrete benefit. SQLite column retained (can't DROP COLUMN cleanly); new rows get NULL.
+- `--dir`: added. Agents often run from a fixed working directory, not the shell's cwd. Canonicalized on input — fails early with a clear error if path doesn't exist.
+- `jb` with no args: defaults to `jb list` instead of printing help. The most common action when you forget the job ID is to list jobs.
+
+---
+
 ## 2026-02-22: Response::UserError for structured IPC errors
 
 **Context**: `spawn_job` returned `Response::Error("Name 'X' is in use by running job Y")`. The client in `run.rs` detected this by string-matching the prose message with `e.starts_with("Name '") && e.contains("is in use")`. Any rewording of the message would silently break the classification.
