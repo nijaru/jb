@@ -36,11 +36,11 @@ pub async fn execute(id: String, force: bool, json: bool) -> Result<()> {
                 }
                 return Ok(());
             }
+            Response::UserError(_) => {
+                // Job not running in daemon — fall back to direct kill below
+            }
             Response::Error(e) => {
-                // Job might not be running in daemon, fall back to direct kill
-                if !e.contains("not running") {
-                    anyhow::bail!("{e}");
-                }
+                anyhow::bail!("{e}");
             }
             _ => {}
         }

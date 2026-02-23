@@ -1,4 +1,4 @@
-use crate::core::{Database, Paths, Status, parse_duration};
+use crate::core::{Database, Paths, Status, UserError, parse_duration};
 use anyhow::Result;
 use chrono::Utc;
 
@@ -15,6 +15,14 @@ pub fn execute(older_than: &str, status: Option<String>, all: bool) -> Result<()
     };
 
     let status_filter = status.map(|s| s.parse::<Status>()).transpose()?;
+
+    if let Some(s) = &status_filter
+        && !s.is_terminal()
+    {
+        anyhow::bail!(UserError::new(format!(
+            "cannot clean jobs with status '{s}': only terminal statuses allowed (completed, failed, stopped, interrupted)"
+        )));
+    }
 
     let count = db.delete_old(before, status_filter)?;
 

@@ -182,7 +182,7 @@ async fn handle_request(
         Request::Stop { id, force } => match state.get_job(&id) {
             Ok(Some(job)) => {
                 if job.status != Status::Running {
-                    return Response::Error(format!("Job {} is not running", job.short_id()));
+                    return Response::UserError(format!("Job {} is not running", job.short_id()));
                 }
                 spawner::stop_job(state, &job.id, force)
             }

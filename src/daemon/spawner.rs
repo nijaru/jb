@@ -81,7 +81,11 @@ pub fn spawn_job(
         if let Err(e) = run_job(&state_clone, job_id.clone(), command, cwd, timeout_secs).await {
             error!("Job {} failed: {}", job_id, e);
             let db = state_clone.db.lock().unwrap();
-            if let Err(db_err) = db.update_finished(&job_id, Status::Failed, None) {
+            // Only overwrite if no concurrent stop/interrupt already set a terminal status
+            if let Ok(Some(job)) = db.get(&job_id)
+                && !job.status.is_terminal()
+                && let Err(db_err) = db.update_finished(&job_id, Status::Failed, None)
+            {
                 error!("Failed to mark job {} as failed: {}", job_id, db_err);
             }
         }

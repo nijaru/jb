@@ -1,7 +1,7 @@
 use crate::client::DaemonClient;
 use crate::core::ipc::{Request, Response};
 use crate::core::{Paths, detect_project, parse_duration};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::env;
 use std::path::PathBuf;
 
@@ -20,7 +20,9 @@ pub async fn execute(
     paths.ensure_dirs()?;
 
     let cwd = match dir {
-        Some(d) => PathBuf::from(d).canonicalize()?,
+        Some(d) => PathBuf::from(&d)
+            .canonicalize()
+            .with_context(|| format!("directory not found: {d}"))?,
         None => env::current_dir()?,
     };
     let project = detect_project(&cwd);
