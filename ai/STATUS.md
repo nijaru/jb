@@ -1,36 +1,43 @@
 # Status
 
 **Version**: 0.0.13 (released) — 0.0.14 pending
-**Phase**: Post-review correctness fixes
+**Phase**: Release prep
 
 ## Current State
 
-0.0.14 is ready to release. All fixes committed, tests passing (55/55), clean build.
+0.0.14 ready to release. Tests passing (55/55), clean build. Session added three
+post-review cleanups (not in original 0.0.14 scope — include or bump to 0.0.15):
 
-## Changes in 0.0.14 (unreleased)
+| Change             | Commit  |
+| ------------------ | ------- |
+| Remove --context   | b2f2778 |
+| Add --dir to run   | b2f2778 |
+| Default jb to list | b2f2778 |
 
-| Fix                                              | Severity | File             |
-| ------------------------------------------------ | -------- | ---------------- |
-| Prefix match non-deterministic                   | ERROR    | db.rs            |
-| clean --status running deletes live jobs         | ERROR    | db.rs            |
-| Spawn failure leaves job Pending forever         | ERROR    | spawner.rs       |
-| DB update errors silently swallowed              | ERROR    | spawner.rs       |
-| PID 0 stored on spawn edge case                  | ERROR    | spawner.rs       |
-| unwrap() panic in stop/wait on concurrent clean  | ERROR    | stop.rs, wait.rs |
-| Paths::new() panics if HOME unset                | WARN     | paths.rs         |
-| Log file race in jb clean                        | WARN     | clean.rs         |
-| Mutex deadlock surface in interrupt_running_jobs | WARN     | state.rs         |
-| Dead oneshot completion channel                  | WARN     | spawner.rs       |
-| Response::UserError for structured IPC errors    | WARN     | ipc.rs, run.rs   |
-| recover_orphans silently swallows errors         | WARN     | db.rs            |
-| BufReader line count in status                   | NIT      | status.rs        |
-| PAGER="less -R" split                            | NIT      | logs.rs          |
-| &PathBuf → &Path                                 | NIT      | project.rs       |
+## 0.0.14 Fix Summary
+
+| Fix                                              | Severity |
+| ------------------------------------------------ | -------- |
+| Prefix match non-deterministic                   | ERROR    |
+| clean --status running deletes live jobs         | ERROR    |
+| Spawn failure leaves job Pending forever         | ERROR    |
+| DB update errors silently swallowed              | ERROR    |
+| PID 0 stored on spawn edge case                  | ERROR    |
+| unwrap() panic in stop/wait on concurrent clean  | ERROR    |
+| Paths::new() panics if HOME unset                | WARN     |
+| Log file race in jb clean                        | WARN     |
+| Mutex deadlock surface in interrupt_running_jobs | WARN     |
+| Dead oneshot completion channel                  | WARN     |
+| Response::UserError for structured IPC errors    | WARN     |
+| recover_orphans silently swallows errors         | WARN     |
+| BufReader line count in status                   | NIT      |
+| PAGER="less -R" split                            | NIT      |
+| &PathBuf → &Path                                 | NIT      |
 
 ## To Release 0.0.14
 
 1. Bump version in Cargo.toml: `0.0.13` → `0.0.14`
-2. Update CHANGELOG.md: move Unreleased to `[0.0.14] - <date>`
+2. Update CHANGELOG.md: move Unreleased to `[0.0.14] - 2026-02-22`
 3. `git tag v0.0.14 && git push && git push --tags`
 4. Wait for CI, then update Homebrew tap checksum
 
