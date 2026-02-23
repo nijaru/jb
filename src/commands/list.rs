@@ -4,6 +4,28 @@ use colored::Colorize;
 
 const DEFAULT_LIMIT: usize = 10;
 
+fn query_jobs(
+    status_filter: Option<String>,
+    failed: bool,
+    limit: Option<usize>,
+    all: bool,
+    db: &Database,
+) -> Result<Vec<crate::core::Job>> {
+    let status = if failed {
+        Some(Status::Failed)
+    } else {
+        status_filter.map(|s| s.parse::<Status>()).transpose()?
+    };
+
+    let effective_limit = if all {
+        None
+    } else {
+        Some(limit.unwrap_or(DEFAULT_LIMIT))
+    };
+
+    db.list(status, effective_limit)
+}
+
 pub fn execute(
     status_filter: Option<String>,
     failed: bool,
@@ -17,19 +39,7 @@ pub fn execute(
     // Check for orphaned jobs (dead processes still marked running)
     db.recover_orphans();
 
-    let status = if failed {
-        Some(Status::Failed)
-    } else {
-        status_filter.map(|s| s.parse::<Status>()).transpose()?
-    };
-
-    let effective_limit = if all {
-        None
-    } else {
-        Some(limit.unwrap_or(DEFAULT_LIMIT))
-    };
-
-    let jobs = db.list(status, effective_limit)?;
+    let jobs = query_jobs(status_filter, failed, limit, all, &db)?;
 
     if json {
         println!("{}", serde_json::to_string(&jobs)?);
@@ -106,5 +116,112 @@ fn format_relative_time(t: chrono::DateTime<chrono::Utc>) -> String {
         format!("{}m ago", diff.num_minutes())
     } else {
         "just now".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::{Database, Job, Paths};
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    fn setup() -> (Database, TempDir) {
+        let tmp = TempDir::new().unwrap();
+        let paths = Paths::with_root(tmp.path().to_path_buf());
+        let db = Database::open(&paths).unwrap();
+        (db, tmp)
+    }
+
+    fn job(id: &str, status: Status) -> Job {
+        let mut j = Job::new(
+            id.into(),
+            format!("echo {id}"),
+            PathBuf::from("/tmp"),
+            PathBuf::from("/project"),
+        );
+        j.status = status;
+        j
+    }
+
+    #[test]
+    fn test_no_filter_applies_default_limit() {
+        let (db, _tmp) = setup();
+        for i in 0..15u8 {
+            db.insert(&job(&format!("j{i:02}"), Status::Completed))
+                .unwrap();
+        }
+        let jobs = query_jobs(None, false, None, false, &db).unwrap();
+        assert_eq!(jobs.len(), DEFAULT_LIMIT);
+    }
+
+    #[test]
+    fn test_all_flag_returns_all_jobs() {
+        let (db, _tmp) = setup();
+        for i in 0..15u8 {
+            db.insert(&job(&format!("j{i:02}"), Status::Completed))
+                .unwrap();
+        }
+        let jobs = query_jobs(None, false, None, true, &db).unwrap();
+        assert_eq!(jobs.len(), 15);
+    }
+
+    #[test]
+    fn test_failed_flag_filters_to_failed_only() {
+        let (db, _tmp) = setup();
+        db.insert(&job("a", Status::Failed)).unwrap();
+        db.insert(&job("b", Status::Completed)).unwrap();
+        db.insert(&job("c", Status::Failed)).unwrap();
+
+        let jobs = query_jobs(None, true, None, true, &db).unwrap();
+        assert_eq!(jobs.len(), 2);
+        assert!(jobs.iter().all(|j| j.status == Status::Failed));
+    }
+
+    #[test]
+    fn test_status_filter_string() {
+        let (db, _tmp) = setup();
+        db.insert(&job("a", Status::Running)).unwrap();
+        db.insert(&job("b", Status::Completed)).unwrap();
+
+        let jobs = query_jobs(Some("running".into()), false, None, true, &db).unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, "a");
+    }
+
+    #[test]
+    fn test_custom_limit() {
+        let (db, _tmp) = setup();
+        for i in 0..10u8 {
+            db.insert(&job(&format!("j{i}"), Status::Completed))
+                .unwrap();
+        }
+        let jobs = query_jobs(None, false, Some(3), false, &db).unwrap();
+        assert_eq!(jobs.len(), 3);
+    }
+
+    #[test]
+    fn test_empty_result_when_no_jobs() {
+        let (db, _tmp) = setup();
+        let jobs = query_jobs(None, false, None, true, &db).unwrap();
+        assert!(jobs.is_empty());
+    }
+
+    #[test]
+    fn test_invalid_status_string_errors() {
+        let (db, _tmp) = setup();
+        let result = query_jobs(Some("bogus".into()), false, None, true, &db);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_failed_flag_overrides_status_filter() {
+        let (db, _tmp) = setup();
+        db.insert(&job("a", Status::Failed)).unwrap();
+        db.insert(&job("b", Status::Running)).unwrap();
+
+        let jobs = query_jobs(Some("running".into()), true, None, true, &db).unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, "a");
     }
 }
