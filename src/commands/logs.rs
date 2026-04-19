@@ -14,7 +14,7 @@ fn should_colorize() -> bool {
     std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
 }
 
-pub fn execute(id: &str, tail: Option<usize>, follow: bool, pager: bool) -> Result<()> {
+pub async fn execute(id: &str, tail: Option<usize>, follow: bool, pager: bool) -> Result<()> {
     let paths = Paths::new()?;
     let db = Database::open(&paths)?;
 
@@ -28,7 +28,7 @@ pub fn execute(id: &str, tail: Option<usize>, follow: bool, pager: bool) -> Resu
     let log_path = paths.log_file(&job.id);
 
     if follow {
-        return follow_logs(&db, &paths, &job.id, &log_path);
+        return follow_logs(&db, &paths, &job.id, &log_path).await;
     }
 
     // Non-follow mode: read existing content
@@ -205,7 +205,7 @@ fn tail_last_n_lines_to_writer(
     Ok(())
 }
 
-fn follow_logs(db: &Database, _paths: &Paths, job_id: &str, log_path: &Path) -> Result<()> {
+async fn follow_logs(db: &Database, _paths: &Paths, job_id: &str, log_path: &Path) -> Result<()> {
     let colorize = should_colorize();
 
     // Set up Ctrl+C handler - on interrupt, just exit cleanly (job continues)
@@ -235,7 +235,7 @@ fn follow_logs(db: &Database, _paths: &Paths, job_id: &str, log_path: &Path) -> 
             anyhow::bail!("Job not found");
         }
 
-        std::thread::sleep(Duration::from_millis(100));
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
     let mut file = std::fs::File::open(log_path)?;
@@ -312,7 +312,7 @@ fn follow_logs(db: &Database, _paths: &Paths, job_id: &str, log_path: &Path) -> 
         }
 
         // Small sleep before next poll
-        std::thread::sleep(Duration::from_millis(100));
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 
@@ -320,7 +320,7 @@ fn follow_logs(db: &Database, _paths: &Paths, job_id: &str, log_path: &Path) -> 
 fn ctrlc_handler<F: Fn() + Send + Sync + 'static>(handler: F) {
     #[cfg(unix)]
     {
-        use nix::sys::signal::{SigHandler, Signal, signal};
+        use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet, Signal, sigaction};
 
         static HANDLER: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> =
             std::sync::OnceLock::new();
@@ -332,8 +332,13 @@ fn ctrlc_handler<F: Fn() + Send + Sync + 'static>(handler: F) {
         }
 
         let _ = HANDLER.set(Box::new(handler));
+        let action = SigAction::new(
+            SigHandler::Handler(signal_handler),
+            SaFlags::empty(),
+            SigSet::empty(),
+        );
         unsafe {
-            let _ = signal(Signal::SIGINT, SigHandler::Handler(signal_handler));
+            let _ = sigaction(Signal::SIGINT, &action);
         }
     }
 

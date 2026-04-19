@@ -206,7 +206,7 @@ async fn run() -> Result<()> {
             tail,
             follow,
             pager,
-        } => commands::logs::execute(&id, tail, follow, pager),
+        } => commands::logs::execute(&id, tail, follow, pager).await,
         Commands::Stop { id, force } => commands::stop::execute(id, force, cli.json).await,
         Commands::Wait { id, timeout } => commands::wait::execute(id, timeout).await,
         Commands::Retry { id } => commands::retry::execute(id, cli.json).await,
