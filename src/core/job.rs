@@ -11,6 +11,7 @@ pub enum Status {
     Failed,
     Stopped,
     Interrupted,
+    Timeout,
 }
 
 impl Status {
@@ -23,6 +24,7 @@ impl Status {
             Self::Failed => "failed",
             Self::Stopped => "stopped",
             Self::Interrupted => "interrupted",
+            Self::Timeout => "timeout",
         }
     }
 
@@ -30,14 +32,14 @@ impl Status {
     pub fn is_terminal(self) -> bool {
         matches!(
             self,
-            Self::Completed | Self::Failed | Self::Stopped | Self::Interrupted
+            Self::Completed | Self::Failed | Self::Stopped | Self::Interrupted | Self::Timeout
         )
     }
 
     /// String form of every terminal status. Single source of truth for SQL IN clauses.
     #[must_use]
     pub fn terminal_strs() -> &'static [&'static str] {
-        &["completed", "failed", "stopped", "interrupted"]
+        &["completed", "failed", "stopped", "interrupted", "timeout"]
     }
 }
 
@@ -58,6 +60,7 @@ impl std::str::FromStr for Status {
             "failed" => Ok(Status::Failed),
             "stopped" => Ok(Status::Stopped),
             "interrupted" => Ok(Status::Interrupted),
+            "timeout" => Ok(Status::Timeout),
             _ => anyhow::bail!("unknown status: {s}"),
         }
     }

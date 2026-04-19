@@ -91,6 +91,7 @@ fn format_status(status: Status) -> String {
         Status::Failed => s.red().to_string(),
         Status::Stopped => s.magenta().to_string(),
         Status::Interrupted => s.yellow().dimmed().to_string(),
+        Status::Timeout => s.red().dimmed().to_string(),
     }
 }
 

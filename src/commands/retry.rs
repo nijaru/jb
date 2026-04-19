@@ -8,6 +8,14 @@ pub async fn execute(id: String, json: bool) -> Result<()> {
     let db = Database::open(&paths)?;
     let job = db.resolve(&id)?;
 
+    if !job.status.is_terminal() {
+        anyhow::bail!(crate::core::UserError::new(format!(
+            "Cannot retry job {}: still {}",
+            job.short_id(),
+            job.status
+        )));
+    }
+
     // Send to daemon
     let mut client = DaemonClient::connect_or_start().await?;
 

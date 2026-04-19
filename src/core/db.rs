@@ -36,7 +36,6 @@ impl Database {
                 started_at TEXT,
                 finished_at TEXT,
                 timeout_secs INTEGER,
-                context TEXT,
                 idempotency_key TEXT UNIQUE
             );
 
@@ -76,6 +75,11 @@ impl Database {
     }
 
     pub fn get(&self, id: &str) -> Result<Option<Job>> {
+        // IDs are [0-9a-z] (see generate_id); reject LIKE metacharacters so callers
+        // can't glob-match with `jb logs %` or similar.
+        if id.contains(['%', '_', '\\']) {
+            return Ok(None);
+        }
         let job = self
             .conn
             .query_row(

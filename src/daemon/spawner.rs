@@ -168,6 +168,9 @@ async fn run_job(
                     () = tokio::time::sleep(Duration::from_secs(GRACEFUL_SHUTDOWN_SECS)) => {
                         warn!("Job {} did not exit after SIGTERM, sending SIGKILL", job_id);
                         kill_process_group(pid, true); // Force kill
+                        // Reap the child explicitly — relying on drop-time reaping
+                        // couples us to tokio internals.
+                        let _ = child.wait().await;
                         JobResult::Timeout
                     }
                 }
@@ -206,7 +209,7 @@ async fn run_job(
         }
         JobResult::Timeout => {
             let db = state.db.lock().unwrap();
-            if let Err(e) = db.update_finished(&job_id, Status::Stopped, None) {
+            if let Err(e) = db.update_finished(&job_id, Status::Timeout, None) {
                 error!(
                     "Failed to update job {} status after timeout: {}",
                     job_id, e
@@ -296,7 +299,7 @@ pub async fn wait_for_job(
         if let Some(t) = timeout
             && start.elapsed() >= t
         {
-            return Response::Error("Wait timed out".to_string());
+            return Response::WaitTimeout;
         }
 
         // Poll interval

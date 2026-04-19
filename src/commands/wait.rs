@@ -33,11 +33,11 @@ pub async fn execute(id: String, timeout: Option<String>) -> Result<()> {
                 handle_terminal(&completed);
                 return Ok(());
             }
+            Response::WaitTimeout => {
+                eprintln!("Timeout - job still running");
+                std::process::exit(124);
+            }
             Response::Error(e) => {
-                if e.contains("timed out") {
-                    eprintln!("Timeout - job still running");
-                    std::process::exit(124);
-                }
                 anyhow::bail!("{e}");
             }
             _ => {}

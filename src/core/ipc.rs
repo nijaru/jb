@@ -37,6 +37,7 @@ pub enum Response {
     Ok,
     Error(String),
     UserError(String),
+    WaitTimeout,
     Pong {
         pid: u32,
         uptime_secs: u64,
