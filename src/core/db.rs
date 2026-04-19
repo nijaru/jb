@@ -319,8 +319,9 @@ impl Database {
         bail!("Too many jobs - run `jb clean` to remove old jobs")
     }
 
-    /// Check for orphaned jobs (running/pending but process dead) and mark as interrupted.
-    /// Called on DB open to handle daemon crashes.
+    /// Mark any Running/Pending jobs as Interrupted. Daemon-startup only — clients
+    /// must not call this, since a client running concurrently with the daemon
+    /// would clobber jobs the daemon is actively managing.
     pub fn recover_orphans(&self) {
         let running = match self.list(Some(Status::Running), None) {
             Ok(jobs) => jobs,

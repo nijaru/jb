@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.0.15] - 2026-04-18
+
+### Added
+
+- `Status::Timeout` — jobs killed by `--timeout` now report a distinct status instead of `Stopped`, so `jb list` can tell a manual stop from a timeout kill.
+- `Response::WaitTimeout` IPC variant — `jb wait --timeout` no longer string-matches the daemon's error prose.
+
+### Fixed
+
+- **Orphan recovery could signal a recycled PID** — on daemon restart, jobs in Running/Pending are now marked `Interrupted` unconditionally. `is_process_alive` is unreliable under PID reuse and the daemon has no child handle to reclaim the job with.
+- **Orphan recovery clobbered live daemon-managed jobs** — `recover_orphans` is daemon-startup only now. Client commands (`list`, `status`, `wait`, `logs`) no longer call it; a client running concurrently with the daemon was marking active jobs `Interrupted`.
+- **Timeout status lost when SIGTERM succeeded** — child exiting after SIGTERM was being reported as `Failed` via the signal exit code. Once timeout is decided, status is `Timeout` regardless of how the child exited.
+- **`jb stop` could signal an unrelated process when daemon was unreachable** — the PID-signalling fallback in `stop_without_daemon` is gone; Running jobs now require the daemon and Pending jobs still mark `Stopped` directly.
+- **`db.delete_old` could silently skip a new terminal status** — allowlist (unfiltered) and denylist (status filter) branches now derive from `Status::terminal_strs`, keeping them in sync if a variant is added.
+- **`jb retry` on a non-terminal job returned an opaque name-collision error** — rejected up front with a clear UserError.
+- **Child not awaited after SIGKILL** in the timeout escalation path — explicit `child.wait().await` instead of relying on tokio's drop-time reaping.
+- **LIKE metacharacters in `db.get`** — `jb logs %` no longer glob-matches jobs; `%`, `_`, `\` are rejected.
+- **Corrupt `created_at` silently swapped in `Utc::now()`** — now logs a warn with the job id and raw value before falling back.
+
+### Changed
+
+- `follow_logs` is async and uses `tokio::time::sleep`; `ctrlc_handler` uses `sigaction` instead of the legacy `signal(2)` API.
+- Dead `context` column dropped from the `jobs` schema (feature removed in 0.0.14; old DBs keep a harmless NULL column).
+- Clippy `collapsible_if` fix in a test helper, unblocking CI on Rust 1.95 stable.
+
 ## [0.0.14] - 2026-02-23
 
 ### Added

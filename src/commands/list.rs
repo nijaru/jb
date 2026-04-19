@@ -36,9 +36,6 @@ pub fn execute(
     let paths = Paths::new()?;
     let db = Database::open(&paths)?;
 
-    // Check for orphaned jobs (dead processes still marked running)
-    db.recover_orphans();
-
     let jobs = query_jobs(status_filter, failed, limit, all, &db)?;
 
     if json {

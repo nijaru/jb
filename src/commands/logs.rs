@@ -18,12 +18,6 @@ pub async fn execute(id: &str, tail: Option<usize>, follow: bool, pager: bool) -
     let paths = Paths::new()?;
     let db = Database::open(&paths)?;
 
-    // Check for orphaned jobs (dead processes still marked running)
-    // Skip in follow mode to avoid race condition with daemon
-    if !follow {
-        db.recover_orphans();
-    }
-
     let job = db.resolve(id)?;
     let log_path = paths.log_file(&job.id);
 

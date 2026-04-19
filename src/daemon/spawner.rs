@@ -164,7 +164,7 @@ async fn run_job(
                 tokio::select! {
                     biased;
                     _ = stop_rx.changed() => JobResult::Stopped,
-                    status = child.wait() => JobResult::Completed(status.ok()),
+                    _ = child.wait() => JobResult::Timeout,
                     () = tokio::time::sleep(Duration::from_secs(GRACEFUL_SHUTDOWN_SECS)) => {
                         warn!("Job {} did not exit after SIGTERM, sending SIGKILL", job_id);
                         kill_process_group(pid, true); // Force kill
