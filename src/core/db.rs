@@ -227,8 +227,20 @@ impl Database {
             cwd: PathBuf::from(row.get::<_, String>("cwd")?),
             pid: row.get("pid")?,
             exit_code: row.get("exit_code")?,
-            created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>("created_at")?)
-                .map_or_else(|_| chrono::Utc::now(), |t| t.with_timezone(&chrono::Utc)),
+            created_at: {
+                let raw = row.get::<_, String>("created_at")?;
+                match chrono::DateTime::parse_from_rfc3339(&raw) {
+                    Ok(t) => t.with_timezone(&chrono::Utc),
+                    Err(e) => {
+                        warn!(
+                            "corrupt created_at '{}' on job {}: {e}; falling back to now",
+                            raw,
+                            row.get::<_, String>("id").unwrap_or_default()
+                        );
+                        chrono::Utc::now()
+                    }
+                }
+            },
             started_at: row
                 .get::<_, Option<String>>("started_at")?
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
