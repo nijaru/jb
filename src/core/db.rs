@@ -179,18 +179,31 @@ impl Database {
         before: chrono::DateTime<chrono::Utc>,
         status: Option<Status>,
     ) -> Result<usize> {
-        let mut sql = String::from(
-            "DELETE FROM jobs WHERE created_at < ?1 AND status IN ('completed', 'failed', 'stopped', 'interrupted')",
-        );
+        // If a specific status is requested, verify it's a terminal status; otherwise
+        // match any terminal status. Both branches derive the set from Status::terminal_strs.
+        let terminal = Status::terminal_strs();
         let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(before.to_rfc3339())];
+        let status_clause = match status {
+            Some(s) => {
+                if !s.is_terminal() {
+                    return Ok(0);
+                }
+                params_vec.push(Box::new(s.as_str().to_string()));
+                "status = ?2".to_string()
+            }
+            None => {
+                let placeholders = (2..2 + terminal.len())
+                    .map(|i| format!("?{i}"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                for t in terminal {
+                    params_vec.push(Box::new((*t).to_string()));
+                }
+                format!("status IN ({placeholders})")
+            }
+        };
 
-        if let Some(s) = status {
-            sql = String::from(
-                "DELETE FROM jobs WHERE created_at < ?1 AND status = ?2 AND status NOT IN ('running', 'pending')",
-            );
-            params_vec.push(Box::new(s.as_str().to_string()));
-        }
-
+        let sql = format!("DELETE FROM jobs WHERE created_at < ?1 AND {status_clause}");
         let params_refs: Vec<&dyn rusqlite::ToSql> =
             params_vec.iter().map(std::convert::AsRef::as_ref).collect();
         let count = self.conn.execute(&sql, params_refs.as_slice())?;
@@ -308,38 +321,15 @@ impl Database {
             }
         };
 
+        // On daemon restart we have no child handles or RunningJob entries, so there's
+        // no way to reclaim these jobs even if the recorded PID still looks alive.
+        // PID reuse also makes is_process_alive unreliable. Mark all as Interrupted.
         for job in running.into_iter().chain(pending) {
-            if let Some(pid) = job.pid
-                && is_process_alive(pid)
-            {
-                // Process still running - leave as is
-                continue;
-            }
-            // Process dead or no PID - mark as interrupted
             if let Err(e) = self.update_finished(&job.id, Status::Interrupted, None) {
                 warn!("Failed to mark orphaned job {} as interrupted: {e}", job.id);
             }
         }
     }
-}
-
-/// Check if a process is still alive by sending signal 0.
-#[cfg(unix)]
-fn is_process_alive(pid: u32) -> bool {
-    use nix::sys::signal::kill;
-    use nix::unistd::Pid;
-
-    if pid == 0 {
-        return false;
-    }
-
-    #[allow(clippy::cast_possible_wrap)]
-    kill(Pid::from_raw(pid as i32), None).is_ok()
-}
-
-#[cfg(not(unix))]
-fn is_process_alive(_pid: u32) -> bool {
-    false
 }
 
 #[cfg(test)]

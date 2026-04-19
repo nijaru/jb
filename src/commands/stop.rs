@@ -1,6 +1,6 @@
 use crate::client::DaemonClient;
 use crate::core::ipc::{Request, Response};
-use crate::core::{Database, Paths, Status, kill_process_group};
+use crate::core::{Database, Paths, Status};
 use anyhow::Result;
 
 pub async fn execute(id: String, force: bool, json: bool) -> Result<()> {
@@ -46,8 +46,10 @@ pub async fn execute(id: String, force: bool, json: bool) -> Result<()> {
         }
     }
 
-    // Fallback: direct kill (for jobs started before daemon)
-    stop_without_daemon(&job, &db, force)?;
+    // Fallback: daemon unreachable. Only Pending jobs are safe to mark stopped directly;
+    // Running jobs have a PID that may have been recycled, so we can't signal it.
+    let _ = force;
+    stop_without_daemon(&job, &db)?;
 
     if json {
         let updated = db
@@ -61,18 +63,17 @@ pub async fn execute(id: String, force: bool, json: bool) -> Result<()> {
     Ok(())
 }
 
-/// Direct stop path: used when daemon is unreachable or job was pre-daemon.
-/// Pending jobs: mark Stopped in DB. Running jobs: kill process group + mark Stopped.
-fn stop_without_daemon(
-    job: &crate::core::Job,
-    db: &crate::core::Database,
-    force: bool,
-) -> Result<()> {
+/// Direct stop path used when the daemon is unreachable.
+/// Only Pending jobs are handled — a Running job's recorded PID may have been
+/// recycled by the OS, so signalling it could hit an unrelated process.
+fn stop_without_daemon(job: &crate::core::Job, db: &crate::core::Database) -> Result<()> {
     if job.status == Status::Pending {
         db.update_status(&job.id, Status::Stopped)?;
-    } else if let Some(pid) = job.pid {
-        kill_process_group(pid, force);
-        db.update_finished(&job.id, Status::Stopped, None)?;
+    } else {
+        anyhow::bail!(
+            "daemon unreachable; cannot stop running job {} safely",
+            job.short_id()
+        );
     }
     Ok(())
 }
@@ -106,7 +107,7 @@ mod tests {
         let job = pending_job("abc1");
         db.insert(&job).unwrap();
 
-        stop_without_daemon(&job, &db, false).unwrap();
+        stop_without_daemon(&job, &db).unwrap();
 
         let updated = db.get("abc1").unwrap().unwrap();
         assert_eq!(updated.status, Status::Stopped);
@@ -114,17 +115,15 @@ mod tests {
     }
 
     #[test]
-    fn test_stop_job_without_pid_is_noop() {
+    fn test_stop_running_job_without_daemon_errors() {
         let (db, paths, _tmp) = setup();
         let mut job = pending_job("abc1");
         job.status = Status::Running;
-        job.pid = None;
+        job.pid = Some(1);
         db.insert(&job).unwrap();
 
-        stop_without_daemon(&job, &db, false).unwrap();
-
-        let updated = db.get("abc1").unwrap().unwrap();
-        assert_eq!(updated.status, Status::Running);
+        let err = stop_without_daemon(&job, &db).unwrap_err();
+        assert!(err.to_string().contains("daemon unreachable"));
         drop(paths);
     }
 }

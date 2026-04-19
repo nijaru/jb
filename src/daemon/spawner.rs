@@ -329,10 +329,10 @@ mod tests {
 
     async fn poll_terminal(state: &Arc<DaemonState>, id: &str) -> Status {
         for _ in 0..100 {
-            if let Ok(Some(job)) = state.get_job(id) {
-                if job.status.is_terminal() {
-                    return job.status;
-                }
+            if let Ok(Some(job)) = state.get_job(id)
+                && job.status.is_terminal()
+            {
+                return job.status;
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }

@@ -33,6 +33,12 @@ impl Status {
             Self::Completed | Self::Failed | Self::Stopped | Self::Interrupted
         )
     }
+
+    /// String form of every terminal status. Single source of truth for SQL IN clauses.
+    #[must_use]
+    pub fn terminal_strs() -> &'static [&'static str] {
+        &["completed", "failed", "stopped", "interrupted"]
+    }
 }
 
 impl std::fmt::Display for Status {
