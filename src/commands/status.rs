@@ -53,19 +53,11 @@ fn show_job_status(db: &Database, paths: &Paths, id: &str, json: bool) -> Result
 }
 
 fn show_system_status(db: &Database, paths: &Paths, json: bool) -> Result<()> {
-    let all_jobs = db.list(None, None)?;
-    let running = all_jobs
-        .iter()
-        .filter(|j| j.status == Status::Running)
-        .count();
-    let completed = all_jobs
-        .iter()
-        .filter(|j| j.status == Status::Completed)
-        .count();
-    let failed = all_jobs
-        .iter()
-        .filter(|j| j.status == Status::Failed)
-        .count();
+    // Use COUNT(*) queries instead of loading all jobs into memory
+    let running = db.count(Some(Status::Running))?;
+    let completed = db.count(Some(Status::Completed))?;
+    let failed = db.count(Some(Status::Failed))?;
+    let total = db.count(None)?;
 
     let daemon_running = paths.socket().exists();
 
@@ -76,7 +68,7 @@ fn show_system_status(db: &Database, paths: &Paths, json: bool) -> Result<()> {
                 "running": running,
                 "completed": completed,
                 "failed": failed,
-                "total": all_jobs.len()
+                "total": total
             }
         });
         println!("{}", serde_json::to_string_pretty(&status)?);
@@ -89,10 +81,7 @@ fn show_system_status(db: &Database, paths: &Paths, json: bool) -> Result<()> {
     );
     println!(
         "Jobs:     {} running, {} completed, {} failed ({} total)",
-        running,
-        completed,
-        failed,
-        all_jobs.len()
+        running, completed, failed, total
     );
 
     Ok(())

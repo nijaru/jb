@@ -81,12 +81,20 @@ pub fn spawn_job(
         if let Err(e) = run_job(&state_clone, job_id.clone(), command, cwd, timeout_secs).await {
             error!("Job {} failed: {}", job_id, e);
             let db = state_clone.db.lock().unwrap();
-            // Only overwrite if no concurrent stop/interrupt already set a terminal status
             if let Ok(Some(job)) = db.get(&job_id)
                 && !job.status.is_terminal()
-                && let Err(db_err) = db.update_finished(&job_id, Status::Failed, None)
             {
-                error!("Failed to mark job {} as failed: {}", job_id, db_err);
+                // If the job never reached 'running' (e.g. bad CWD), update directly.
+                // Pending jobs don't race with stop/interrupt since they aren't tracked.
+                let result = if job.status == Status::Pending {
+                    db.update_finished_direct(&job_id, Status::Failed, None)
+                        .map(|()| true)
+                } else {
+                    db.update_finished(&job_id, Status::Failed, None)
+                };
+                if let Err(db_err) = result {
+                    error!("Failed to mark job {} as failed: {}", job_id, db_err);
+                }
             }
         }
     });

@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.0.16] - 2026-07-02
+
+### Fixed
+
+- **Stop/completion status race** — `stop_job` and `run_job` completion handler could overwrite each other's terminal status in the DB. `update_finished` now uses CAS (`WHERE status = 'running'`).
+- **Pre-start failures stuck as Pending** — jobs that failed before reaching `running` (e.g. bad CWD) couldn't be marked Failed after the CAS change. Added `update_finished_direct` for unconditional transitions.
+- **`Cargo.lock` was gitignored** on a binary crate — now tracked for reproducible builds.
+
+### Changed
+
+- `jb status` (system view) uses `COUNT(*)` queries instead of loading all jobs into memory.
+- `db.list()` parameterizes `LIMIT` clause instead of string interpolation.
+- `query_jobs` takes `Option<Status>` directly; `--failed` override resolved in `execute()`.
+- Better error message when daemon is unreachable on `jb stop` — tells user to run `jb daemon` to recover.
+- `ctrlc_handler` logs debug warning on duplicate registration instead of silently ignoring.
+
+### Removed
+
+- `CLAUDE.md` symlink (chezmoi artifact, not tracked).
+- `ai/` review files, journal, stale brief — pruned to architecture/decisions/brief only.
+- Personal patterns from `.gitignore` (swp, swo, idea, vscode).
+
 ## [0.0.15] - 2026-04-18
 
 ### Added

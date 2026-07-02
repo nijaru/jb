@@ -325,7 +325,9 @@ fn ctrlc_handler<F: Fn() + Send + Sync + 'static>(handler: F) {
             }
         }
 
-        let _ = HANDLER.set(Box::new(handler));
+        let _ = HANDLER.set(Box::new(handler)).inspect_err(|_| {
+            tracing::debug!("ctrlc_handler already registered; ignoring duplicate");
+        });
         let action = SigAction::new(
             SigHandler::Handler(signal_handler),
             SaFlags::empty(),

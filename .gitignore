@@ -1,8 +1,2 @@
 /target
-Cargo.lock
 .DS_Store
-*.swp
-*.swo
-.idea/
-.vscode/
-ai/tmp/

@@ -71,7 +71,9 @@ fn stop_without_daemon(job: &crate::core::Job, db: &crate::core::Database) -> Re
         db.update_status(&job.id, Status::Stopped)?;
     } else {
         anyhow::bail!(
-            "daemon unreachable; cannot stop running job {} safely",
+            "Daemon is not running. Cannot safely stop running job {} — \
+             the recorded PID may have been recycled. Restart the daemon with `jb daemon` \
+             to recover orphaned jobs, then stop it.",
             job.short_id()
         );
     }
@@ -123,7 +125,7 @@ mod tests {
         db.insert(&job).unwrap();
 
         let err = stop_without_daemon(&job, &db).unwrap_err();
-        assert!(err.to_string().contains("daemon unreachable"));
+        assert!(err.to_string().contains("not running"), "error: {err}");
         drop(paths);
     }
 }

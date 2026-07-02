@@ -133,12 +133,11 @@ impl Database {
             params_vec.push(Box::new(s.as_str().to_string()));
         }
 
-        sql.push_str(" ORDER BY created_at DESC");
-
-        if let Some(n) = limit {
-            use std::fmt::Write;
-            let _ = write!(sql, " LIMIT {n}");
-        }
+        // SQLite treats LIMIT -1 as no limit, so we can always parameterize
+        sql.push_str(" ORDER BY created_at DESC LIMIT ?");
+        #[allow(clippy::cast_possible_truncation)] // limits are always small
+        let limit_val: i64 = limit.map_or(-1, |n| n as i64);
+        params_vec.push(Box::new(limit_val));
 
         let mut stmt = self.conn.prepare(&sql)?;
         let params_refs: Vec<&dyn rusqlite::ToSql> =
@@ -165,7 +164,35 @@ impl Database {
         Ok(())
     }
 
-    pub fn update_finished(&self, id: &str, status: Status, exit_code: Option<i32>) -> Result<()> {
+    /// Transition a running job to a terminal status. Uses CAS (WHERE status = 'running')
+    /// so concurrent stop and completion handlers can't overwrite each other.
+    /// Returns true if the row was updated, false if the job was already terminal.
+    pub fn update_finished(
+        &self,
+        id: &str,
+        status: Status,
+        exit_code: Option<i32>,
+    ) -> Result<bool> {
+        let updated = self.conn.execute(
+            "UPDATE jobs SET status = ?1, finished_at = ?2, exit_code = ?3 WHERE id = ?4 AND status = 'running'",
+            params![
+                status.as_str(),
+                chrono::Utc::now().to_rfc3339(),
+                exit_code,
+                id
+            ],
+        )?;
+        Ok(updated > 0)
+    }
+
+    /// Unconditional terminal-state transition. Used when no race is possible
+    /// (e.g. job never reached 'running', or daemon-startup orphan recovery).
+    pub fn update_finished_direct(
+        &self,
+        id: &str,
+        status: Status,
+        exit_code: Option<i32>,
+    ) -> Result<()> {
         self.conn.execute(
             "UPDATE jobs SET status = ?1, finished_at = ?2, exit_code = ?3 WHERE id = ?4",
             params![
@@ -341,9 +368,24 @@ impl Database {
         // On daemon restart we have no child handles or RunningJob entries, so there's
         // no way to reclaim these jobs even if the recorded PID still looks alive.
         // PID reuse also makes is_process_alive unreliable. Mark all as Interrupted.
-        for job in running.into_iter().chain(pending) {
+        //
+        // Running jobs use update_finished (CAS on 'running' — safe since only daemon
+        // startup calls this). Pending jobs need a direct update since they don't match
+        // the 'running' CAS guard.
+        for job in running {
             if let Err(e) = self.update_finished(&job.id, Status::Interrupted, None) {
-                warn!("Failed to mark orphaned job {} as interrupted: {e}", job.id);
+                warn!(
+                    "Failed to mark orphaned running job {} as interrupted: {e}",
+                    job.id
+                );
+            }
+        }
+        for job in pending {
+            if let Err(e) = self.update_finished_direct(&job.id, Status::Interrupted, None) {
+                warn!(
+                    "Failed to mark orphaned pending job {} as interrupted: {e}",
+                    job.id
+                );
             }
         }
     }
