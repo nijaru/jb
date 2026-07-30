@@ -154,17 +154,18 @@ impl JobTask {
         )
         .await;
 
-        if let Err(error) = result {
-            error!("Job {} failed: {}", job_id, error);
-            let finish_result = state.db.lock().expect("database lock poisoned").finish(
-                &job_id,
-                Status::Failed,
-                None,
-            );
-            if let Err(db_error) = finish_result {
-                error!("Failed to mark job {} as failed: {}", job_id, db_error);
+        let result = match result {
+            Ok(result) => result,
+            Err(error) => {
+                error!("Job {} failed: {}", job_id, error);
+                JobResult {
+                    status: Status::Failed,
+                    exit_code: None,
+                    stop_replies: Vec::new(),
+                }
             }
-        }
+        };
+        publish_terminal(&state, &job_id, result).await;
 
         if finished_tx.send(job_id).await.is_err() {
             error!("Daemon stopped receiving job completion events");
@@ -180,7 +181,7 @@ async fn run_job_inner(
     timeout_secs: Option<u64>,
     mut command_rx: mpsc::Receiver<JobCommand>,
     shutdown_rx: tokio::sync::watch::Receiver<bool>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<JobResult> {
     let log_path = state.paths.log_file(job_id);
     let log_file = File::create(&log_path).await?;
     state.paths.secure_file(&log_path)?;
@@ -189,10 +190,10 @@ async fn run_job_inner(
     // A stop or shutdown can arrive while a pending job is waiting for its
     // task to run. Do not create a child after shutdown has started.
     if *shutdown_rx.borrow() {
-        return finish_without_child(state, job_id, JobCommand::Shutdown).await;
+        return Ok(finish_without_child(JobCommand::Shutdown));
     }
     if let Ok(command) = command_rx.try_recv() {
-        return finish_without_child(state, job_id, command).await;
+        return Ok(finish_without_child(command));
     }
 
     let mut child = Command::new("sh")
@@ -210,11 +211,25 @@ async fn run_job_inner(
         anyhow::bail!("failed to get PID of spawned process");
     };
 
-    let claimed = state
-        .db
-        .lock()
-        .expect("database lock poisoned")
-        .mark_running(job_id, pid)?;
+    let claim_result = {
+        let db = state.db.lock().expect("database lock poisoned");
+        db.mark_running(job_id, pid)
+    };
+    let claimed = match claim_result {
+        Ok(claimed) => claimed,
+        Err(error) => {
+            terminate_child(
+                &mut child,
+                pid,
+                Status::Interrupted,
+                true,
+                &mut command_rx,
+                Vec::new(),
+            )
+            .await;
+            return Err(error);
+        }
+    };
     if !claimed {
         terminate_child(
             &mut child,
@@ -231,56 +246,75 @@ async fn run_job_inner(
     info!("Job {} started with PID {}", job_id, pid);
     let result = monitor_child(&mut child, pid, timeout_secs, command_rx, shutdown_rx).await;
 
-    let finish_error = state
-        .db
-        .lock()
-        .expect("database lock poisoned")
-        .finish(job_id, result.status, result.exit_code)
-        .err();
-
-    for reply_sender in result.stop_replies {
-        let reply = match &finish_error {
-            Some(error) => StopReply::Failed(error.to_string()),
-            None => StopReply::Stopped,
-        };
-        let _ = reply_sender.send(reply);
-    }
-
-    if let Some(error) = finish_error {
-        return Err(error);
-    }
-
-    info!("Job {} finished with status {}", job_id, result.status);
-    Ok(())
+    Ok(result)
 }
 
-async fn finish_without_child(
-    state: &Arc<DaemonState>,
-    job_id: &str,
-    command: JobCommand,
-) -> anyhow::Result<()> {
-    let (status, reply) = match command {
-        JobCommand::Stop { reply, .. } => (Status::Stopped, Some(reply)),
-        JobCommand::Shutdown => (Status::Interrupted, None),
+fn finish_without_child(command: JobCommand) -> JobResult {
+    let (status, stop_replies) = match command {
+        JobCommand::Stop { reply, .. } => (Status::Stopped, vec![reply]),
+        JobCommand::Shutdown => (Status::Interrupted, Vec::new()),
     };
-    let finished = state
-        .db
-        .lock()
-        .expect("database lock poisoned")
-        .finish(job_id, status, None)?;
-    if !finished {
-        anyhow::bail!("job {job_id} was already finished before cancellation");
+    JobResult {
+        status,
+        exit_code: None,
+        stop_replies,
     }
-    if let Some(reply) = reply {
-        let _ = reply.send(StopReply::Stopped);
-    }
-    Ok(())
 }
 
 struct JobResult {
     status: Status,
     exit_code: Option<i32>,
     stop_replies: Vec<oneshot::Sender<StopReply>>,
+}
+
+/// Keep the job task alive until SQLite confirms the terminal state. This is
+/// deliberately retry-based: a busy database must not turn a stopped child
+/// into a failed row or drop a waiting stop request.
+async fn publish_terminal(state: &Arc<DaemonState>, job_id: &str, result: JobResult) {
+    let JobResult {
+        status,
+        exit_code,
+        stop_replies,
+    } = result;
+
+    loop {
+        let finish_result = {
+            let db = state.db.lock().expect("database lock poisoned");
+            db.finish(job_id, status, exit_code)
+        };
+
+        match finish_result {
+            Ok(true) => {
+                for reply in stop_replies {
+                    let _ = reply.send(StopReply::Stopped);
+                }
+                info!("Job {} finished with status {}", job_id, status);
+                return;
+            }
+            Ok(false) => {
+                let current = state.db.lock().expect("database lock poisoned").get(job_id);
+                if matches!(current, Ok(Some(ref job)) if job.status.is_terminal()) {
+                    warn!(
+                        "Job {} was already terminal while publishing {}",
+                        job_id, status
+                    );
+                    for reply in stop_replies {
+                        let _ = reply.send(StopReply::Stopped);
+                    }
+                    return;
+                }
+                error!("Terminal transition for job {} was rejected", job_id);
+            }
+            Err(error) => {
+                error!(
+                    "Failed to publish terminal state for job {}: {}",
+                    job_id, error
+                );
+            }
+        }
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }
 
 async fn monitor_child(
@@ -382,11 +416,13 @@ async fn terminate_child(
     mut replies: Vec<oneshot::Sender<StopReply>>,
 ) -> JobResult {
     let mut force = force;
-    if !force && let Err(error) = kill_process_group(pid, false) {
-        warn!("Failed to send SIGTERM to job group {pid}: {error}");
-    }
+    let mut child_result = None;
 
     if !force {
+        if let Err(error) = kill_process_group(pid, false) {
+            warn!("Failed to send SIGTERM to job group {pid}: {error}");
+        }
+
         let grace = tokio::time::sleep(Duration::from_secs(GRACEFUL_SHUTDOWN_SECS));
         tokio::pin!(grace);
         loop {
@@ -405,8 +441,14 @@ async fn terminate_child(
                         break;
                     }
                 },
-                result = child.wait() => {
-                    return complete_termination(child, pid, status, result, replies).await;
+                result = child.wait(), if child_result.is_none() => {
+                    child_result = Some(result);
+                    // A leader can exit on SIGTERM while descendants remain.
+                    // Keep the grace period running so they receive SIGKILL if
+                    // they ignore the graceful signal.
+                    if !process_group_exists(pid).unwrap_or(true) {
+                        break;
+                    }
                 }
                 () = &mut grace => {
                     force = true;
@@ -420,20 +462,20 @@ async fn terminate_child(
         warn!("Failed to send SIGKILL to job group {pid}: {error}");
     }
 
-    let result = child.wait().await;
-    complete_termination(child, pid, status, result, replies).await
+    let result = match child_result {
+        Some(result) => result,
+        None => child.wait().await,
+    };
+    complete_termination(pid, status, result, replies).await
 }
 
 async fn complete_termination(
-    _child: &mut Child,
     pid: u32,
     status: Status,
     result: std::io::Result<std::process::ExitStatus>,
     replies: Vec<oneshot::Sender<StopReply>>,
 ) -> JobResult {
-    if let Err(error) = wait_for_group_gone(pid).await {
-        warn!("Process group {pid} was not confirmed gone: {error}");
-    }
+    terminate_group(pid, false).await;
 
     JobResult {
         status,
@@ -443,30 +485,50 @@ async fn complete_termination(
 }
 
 async fn cleanup_orphaned_group(pid: u32) {
-    let exists = match process_group_exists(pid) {
-        Ok(exists) => exists,
-        Err(error) => {
-            warn!("Could not inspect process group {pid}: {error}");
-            return;
+    match process_group_exists(pid) {
+        Ok(false) => return,
+        Ok(true) => warn!("Child exited while process group {pid} still had members"),
+        Err(error) => warn!("Could not inspect process group {pid}; continuing cleanup: {error}"),
+    }
+    terminate_group(pid, true).await;
+}
+
+async fn terminate_group(pid: u32, graceful: bool) {
+    if graceful {
+        match process_group_exists(pid) {
+            Ok(false) => return,
+            Ok(true) => {
+                if let Err(error) = kill_process_group(pid, false) {
+                    warn!("Failed to send SIGTERM to process group {pid}: {error}");
+                }
+                if wait_for_group_gone(pid).await.is_ok() {
+                    return;
+                }
+            }
+            Err(error) => warn!("Could not inspect process group {pid}: {error}"),
         }
-    };
-    if !exists {
-        return;
     }
 
-    warn!("Child exited while process group {pid} still had members");
-    if let Err(error) = kill_process_group(pid, false) {
-        warn!("Failed to send SIGTERM to orphaned group {pid}: {error}");
-    }
-    if wait_for_group_gone(pid).await.is_ok() {
-        return;
-    }
+    // Once graceful termination has failed, keep ownership until the group is
+    // actually gone. A transient signal/inspection error must not be reported
+    // as a successful terminal job outcome.
+    loop {
+        match process_group_exists(pid) {
+            Ok(false) => return,
+            Ok(true) => {}
+            Err(error) => {
+                warn!("Could not inspect process group {pid}: {error}");
+                tokio::time::sleep(Duration::from_millis(GROUP_CHECK_INTERVAL_MS)).await;
+                continue;
+            }
+        }
 
-    if let Err(error) = kill_process_group(pid, true) {
-        warn!("Failed to send SIGKILL to orphaned group {pid}: {error}");
-    }
-    if let Err(error) = wait_for_group_gone(pid).await {
-        warn!("Could not confirm orphaned process group {pid} is gone: {error}");
+        if let Err(error) = kill_process_group(pid, true) {
+            warn!("Failed to send SIGKILL to process group {pid}: {error}");
+        }
+        if let Err(error) = wait_for_group_gone(pid).await {
+            warn!("Process group {pid} still exists after SIGKILL: {error}");
+        }
     }
 }
 
@@ -510,7 +572,6 @@ pub async fn stop_job(state: &Arc<DaemonState>, job_id: &str, force: bool) -> Re
 
     match reply_rx.await {
         Ok(StopReply::Stopped) => Response::Ok,
-        Ok(StopReply::Failed(error)) => Response::Error(error),
         Err(_) => Response::Error(format!("stop task for {job_id} exited unexpectedly")),
     }
 }

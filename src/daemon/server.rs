@@ -22,9 +22,10 @@ pub async fn run(paths: Paths, state: Arc<DaemonState>) -> Result<()> {
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let shutdown_signal_tx = shutdown_tx.clone();
+    let shutdown_signal_state = Arc::clone(&state);
     tokio::spawn(async move {
         wait_for_shutdown_signal().await;
-        let _ = shutdown_signal_tx.send(true);
+        initiate_shutdown(&shutdown_signal_state, &shutdown_signal_tx);
     });
 
     let connection_limit = Arc::new(Semaphore::new(MAX_CONNECTIONS));
@@ -89,8 +90,7 @@ pub async fn run(paths: Paths, state: Arc<DaemonState>) -> Result<()> {
         }
     }
 
-    state.begin_shutdown();
-    let _ = shutdown_tx.send(true);
+    initiate_shutdown(&state, &shutdown_tx);
 
     while let Some(result) = handlers.join_next().await {
         if let Err(error) = result {
@@ -128,6 +128,11 @@ async fn reap_finished_job(state: &Arc<DaemonState>, job_id: &str) {
             None,
         );
     }
+}
+
+fn initiate_shutdown(state: &Arc<DaemonState>, shutdown_tx: &watch::Sender<bool>) {
+    state.begin_shutdown();
+    let _ = shutdown_tx.send(true);
 }
 
 async fn wait_for_shutdown_signal() {
@@ -253,8 +258,7 @@ async fn handle_request(
         },
         Request::Shutdown => {
             info!("Shutdown requested via IPC");
-            state.begin_shutdown();
-            let _ = shutdown_tx.send(true);
+            initiate_shutdown(state, shutdown_tx);
             Response::Ok
         }
         Request::Run {

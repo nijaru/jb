@@ -8,7 +8,10 @@ All notable changes to this project will be documented in this file.
 
 - Job lifecycle ownership now lives in one daemon task per job. Stop and
   shutdown wait for process-group termination and child reaping before
-  publishing terminal state.
+  publishing terminal state; surviving descendants are escalated even when the
+  shell leader exits on SIGTERM.
+- Terminal publication retries transient SQLite failures while preserving the
+  actual outcome and waiting stop requests.
 - Daemon startup uses an advisory singleton lock and performs stale-socket
   cleanup only after acquiring it; shutdown drains IPC handlers and job tasks.
 - Private state directories and files are explicitly owner-only on Unix.
@@ -20,6 +23,7 @@ All notable changes to this project will be documented in this file.
 ### Tests
 
 - Added subprocess coverage for concurrent daemon startup, stop escalation,
+  descendant cleanup on stop/timeout/shutdown, transient database locks,
   outcome exit codes, and state-file permissions.
 
 ## [0.0.16] - 2026-07-02

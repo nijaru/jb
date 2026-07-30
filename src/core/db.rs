@@ -597,7 +597,8 @@ mod tests {
 
         for _ in 0..100 {
             let id = db.generate_id().unwrap();
-            assert!(ids.insert(id), "Generated duplicate ID");
+            assert!(ids.insert(id.clone()), "Generated duplicate ID");
+            db.insert(&create_test_job(&id, Status::Pending)).unwrap();
         }
     }
 

@@ -17,7 +17,6 @@ pub(crate) enum JobCommand {
 #[derive(Debug)]
 pub(crate) enum StopReply {
     Stopped,
-    Failed(String),
 }
 
 pub(crate) struct JobControl {
