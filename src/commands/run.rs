@@ -44,10 +44,12 @@ pub async fn execute(
     match client.send(request).await? {
         Response::Job(job) => {
             let job_id = job.id.clone();
-            if json && !follow {
-                println!("{}", serde_json::to_string(&job)?);
-            } else if !follow {
-                println!("{}", job.short_id());
+            if !follow && !wait {
+                if json {
+                    println!("{}", serde_json::to_string(&job)?);
+                } else {
+                    println!("{}", job.short_id());
+                }
             }
 
             if follow {
