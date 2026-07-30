@@ -45,9 +45,36 @@ impl Paths {
         self.root.join("daemon.pid")
     }
 
+    #[must_use]
+    pub fn lock_file(&self) -> PathBuf {
+        self.root.join("daemon.lock")
+    }
+
     pub fn ensure_dirs(&self) -> anyhow::Result<()> {
         std::fs::create_dir_all(&self.root)?;
-        std::fs::create_dir_all(self.logs_dir())?;
+        set_mode(&self.root, 0o700)?;
+        let logs = self.logs_dir();
+        std::fs::create_dir_all(&logs)?;
+        set_mode(&logs, 0o700)?;
         Ok(())
     }
+
+    pub fn secure_file(&self, path: &std::path::Path) -> anyhow::Result<()> {
+        set_mode(path, 0o600)
+    }
+}
+
+#[cfg(unix)]
+fn set_mode(path: &std::path::Path, mode: u32) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut permissions = std::fs::metadata(path)?.permissions();
+    permissions.set_mode(mode);
+    std::fs::set_permissions(path, permissions)?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn set_mode(_path: &std::path::Path, _mode: u32) -> anyhow::Result<()> {
+    Ok(())
 }

@@ -4,78 +4,62 @@ use crate::core::{Database, Job, Paths, parse_duration};
 use anyhow::Result;
 use std::time::{Duration, Instant};
 
-pub async fn execute(id: String, timeout: Option<String>) -> Result<()> {
+pub async fn execute(id: String, timeout: Option<String>) -> Result<i32> {
     let paths = Paths::new()?;
     let db = Database::open(&paths)?;
-
     let job = db.resolve(&id)?;
 
-    // If already terminal, return immediately
     if job.status.is_terminal() {
-        handle_terminal(&job);
-        return Ok(());
+        return Ok(print_terminal(&job));
     }
 
-    let timeout_secs = timeout.map(|t| parse_duration(&t)).transpose()?;
-
-    // Wait via daemon
+    let timeout_secs = timeout.map(|value| parse_duration(&value)).transpose()?;
     if let Ok(mut client) = DaemonClient::connect_or_start().await {
-        let request = Request::Wait {
-            id: job.id.clone(),
-            timeout_secs,
-        };
-
-        match client.send(request).await? {
-            Response::Job(completed) => {
-                handle_terminal(&completed);
-                return Ok(());
-            }
+        match client
+            .send(Request::Wait {
+                id: job.id.clone(),
+                timeout_secs,
+            })
+            .await?
+        {
+            Response::Job(completed) => return Ok(print_terminal(&completed)),
             Response::WaitTimeout => {
                 eprintln!("Timeout - job still running");
-                std::process::exit(124);
+                return Ok(124);
             }
-            Response::Error(e) => {
-                anyhow::bail!("{e}");
-            }
-            _ => {}
+            Response::Error(error) => anyhow::bail!("{error}"),
+            _ => anyhow::bail!("Unexpected response from daemon"),
         }
     }
 
-    // Fallback: poll DB
     let start = Instant::now();
-
     loop {
         let current = db
             .get(&job.id)?
             .ok_or_else(|| anyhow::anyhow!("job {} disappeared", job.id))?;
 
         if current.status.is_terminal() {
-            handle_terminal(&current);
-            return Ok(());
+            return Ok(print_terminal(&current));
         }
 
         if let Some(timeout_secs) = timeout_secs
-            && start.elapsed() > Duration::from_secs(timeout_secs)
+            && start.elapsed() >= Duration::from_secs(timeout_secs)
         {
             eprintln!("Timeout - job still running");
-            std::process::exit(124);
+            return Ok(124);
         }
 
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }
 
-fn handle_terminal(job: &Job) {
-    match job.exit_code {
-        Some(0) => {
-            println!("Completed (exit 0)");
+fn print_terminal(job: &Job) -> i32 {
+    match job.status {
+        crate::core::Status::Completed => println!("Completed (exit 0)"),
+        crate::core::Status::Failed => {
+            println!("Failed (exit {})", job.exit_code.unwrap_or(1));
         }
-        Some(code) => {
-            println!("Failed (exit {code})");
-            std::process::exit(code);
-        }
-        None => {
-            println!("{}", job.status);
-        }
+        status => println!("{status}"),
     }
+    job.status.cli_exit_code(job.exit_code)
 }

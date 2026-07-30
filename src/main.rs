@@ -56,7 +56,7 @@ enum Commands {
     /// List jobs
     #[command(visible_alias = "ls")]
     List {
-        /// Filter by status (pending, running, completed, failed, stopped, interrupted)
+        /// Filter by status (pending, running, completed, failed, stopped, interrupted, timeout)
         #[arg(short, long)]
         status: Option<String>,
 
@@ -129,7 +129,7 @@ enum Commands {
         #[arg(short = 't', long, default_value = "7d")]
         older_than: String,
 
-        /// Filter: completed, failed, stopped, interrupted
+        /// Filter: completed, failed, stopped, interrupted, timeout
         #[arg(long)]
         status: Option<String>,
 
@@ -162,19 +162,21 @@ async fn main() {
         )
         .init();
 
-    if let Err(e) = run().await {
-        // Check if this is a UserError (clean exit without stack trace)
-        if let Some(user_err) = e.downcast_ref::<UserError>() {
-            eprintln!("Error: {user_err}");
+    match run().await {
+        Ok(code) if code != 0 => std::process::exit(code),
+        Ok(_) => {}
+        Err(error) => {
+            if let Some(user_err) = error.downcast_ref::<UserError>() {
+                eprintln!("Error: {user_err}");
+            } else {
+                eprintln!("Error: {error:?}");
+            }
             std::process::exit(1);
         }
-        // For other errors, use anyhow's default formatting
-        eprintln!("Error: {e:?}");
-        std::process::exit(1);
     }
 }
 
-async fn run() -> Result<()> {
+async fn run() -> Result<i32> {
     let cli = Cli::parse();
 
     let command = cli.command.unwrap_or(Commands::List {
@@ -184,7 +186,7 @@ async fn run() -> Result<()> {
         all: false,
     });
 
-    match command {
+    let code = match command {
         Commands::Run {
             command,
             name,
@@ -193,29 +195,54 @@ async fn run() -> Result<()> {
             key,
             wait,
             follow,
-        } => commands::run::execute(command, name, timeout, dir, key, wait, follow, cli.json).await,
+        } => {
+            commands::run::execute(command, name, timeout, dir, key, wait, follow, cli.json).await?
+        }
         Commands::List {
             status,
             failed,
             limit,
             all,
-        } => commands::list::execute(status, failed, limit, all, cli.json),
-        Commands::Status { id } => commands::status::execute(id, cli.json),
+        } => {
+            commands::list::execute(status, failed, limit, all, cli.json)?;
+            0
+        }
+        Commands::Status { id } => {
+            commands::status::execute(id, cli.json)?;
+            0
+        }
         Commands::Logs {
             id,
             tail,
             follow,
             pager,
-        } => commands::logs::execute(&id, tail, follow, pager).await,
-        Commands::Stop { id, force } => commands::stop::execute(id, force, cli.json).await,
-        Commands::Wait { id, timeout } => commands::wait::execute(id, timeout).await,
-        Commands::Retry { id } => commands::retry::execute(id, cli.json).await,
+        } => commands::logs::execute(&id, tail, follow, pager).await?,
+        Commands::Stop { id, force } => {
+            commands::stop::execute(id, force, cli.json).await?;
+            0
+        }
+        Commands::Wait { id, timeout } => commands::wait::execute(id, timeout).await?,
+        Commands::Retry { id } => {
+            commands::retry::execute(id, cli.json).await?;
+            0
+        }
         Commands::Clean {
             older_than,
             status,
             all,
-        } => commands::clean::execute(&older_than, status, all),
-        Commands::Daemon => commands::daemon::execute().await,
-        Commands::Completions { shell, install } => commands::completions::execute(shell, install),
-    }
+        } => {
+            commands::clean::execute(&older_than, status, all)?;
+            0
+        }
+        Commands::Daemon => {
+            commands::daemon::execute().await?;
+            0
+        }
+        Commands::Completions { shell, install } => {
+            commands::completions::execute(shell, install)?;
+            0
+        }
+    };
+
+    Ok(code)
 }

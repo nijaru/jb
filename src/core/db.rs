@@ -5,7 +5,6 @@ use anyhow::{Result, bail};
 use rand::Rng;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::PathBuf;
-use tracing::warn;
 
 pub struct Database {
     conn: Connection,
@@ -15,6 +14,8 @@ impl Database {
     pub fn open(paths: &Paths) -> Result<Self> {
         paths.ensure_dirs()?;
         let conn = Connection::open(paths.database())?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+        paths.secure_file(&paths.database())?;
         let db = Self { conn };
         db.init_schema()?;
         Ok(db)
@@ -74,21 +75,29 @@ impl Database {
         Ok(())
     }
 
+    /// Look up one job by its complete ID.
     pub fn get(&self, id: &str) -> Result<Option<Job>> {
-        // IDs are [0-9a-z] (see generate_id); reject LIKE metacharacters so callers
-        // can't glob-match with `jb logs %` or similar.
-        if id.contains(['%', '_', '\\']) {
-            return Ok(None);
-        }
-        let job = self
+        Ok(self
             .conn
             .query_row(
-                "SELECT * FROM jobs WHERE id = ?1 OR id LIKE ?2 || '%' ORDER BY created_at DESC LIMIT 1",
-                params![id, id],
+                "SELECT * FROM jobs WHERE id = ?1",
+                params![id],
                 Self::row_to_job,
             )
-            .optional()?;
-        Ok(job)
+            .optional()?)
+    }
+
+    fn get_prefix(&self, prefix: &str) -> Result<Vec<Job>> {
+        if prefix.contains(['%', '_', '\\']) {
+            return Ok(Vec::new());
+        }
+
+        let mut stmt = self.conn.prepare(
+            "SELECT * FROM jobs WHERE id LIKE ?1 || '%' ORDER BY created_at DESC LIMIT 2",
+        )?;
+        Ok(stmt
+            .query_map(params![prefix], Self::row_to_job)?
+            .collect::<Result<Vec<_>, _>>()?)
     }
 
     pub fn get_by_name(&self, name: &str) -> Result<Vec<Job>> {
@@ -148,33 +157,24 @@ impl Database {
         Ok(jobs)
     }
 
-    pub fn update_status(&self, id: &str, status: Status) -> Result<()> {
-        self.conn.execute(
-            "UPDATE jobs SET status = ?1 WHERE id = ?2",
-            params![status.as_str(), id],
-        )?;
-        Ok(())
-    }
-
-    pub fn update_started(&self, id: &str, pid: u32) -> Result<()> {
-        self.conn.execute(
-            "UPDATE jobs SET status = 'running', started_at = ?1, pid = ?2 WHERE id = ?3",
+    /// Claim a pending job for a child process.
+    pub fn mark_running(&self, id: &str, pid: u32) -> Result<bool> {
+        let updated = self.conn.execute(
+            "UPDATE jobs SET status = 'running', started_at = ?1, pid = ?2 WHERE id = ?3 AND status = 'pending'",
             params![chrono::Utc::now().to_rfc3339(), pid, id],
         )?;
-        Ok(())
+        Ok(updated > 0)
     }
 
-    /// Transition a running job to a terminal status. Uses CAS (WHERE status = 'running')
-    /// so concurrent stop and completion handlers can't overwrite each other.
-    /// Returns true if the row was updated, false if the job was already terminal.
-    pub fn update_finished(
-        &self,
-        id: &str,
-        status: Status,
-        exit_code: Option<i32>,
-    ) -> Result<bool> {
+    /// Publish a terminal state exactly once. Both pending setup failures and
+    /// running children use this transition; terminal rows are immutable.
+    pub fn finish(&self, id: &str, status: Status, exit_code: Option<i32>) -> Result<bool> {
+        if !status.is_terminal() {
+            bail!("cannot finish a job with non-terminal status {status}");
+        }
+
         let updated = self.conn.execute(
-            "UPDATE jobs SET status = ?1, finished_at = ?2, exit_code = ?3 WHERE id = ?4 AND status = 'running'",
+            "UPDATE jobs SET status = ?1, finished_at = ?2, exit_code = ?3 WHERE id = ?4 AND status IN ('pending', 'running')",
             params![
                 status.as_str(),
                 chrono::Utc::now().to_rfc3339(),
@@ -183,26 +183,6 @@ impl Database {
             ],
         )?;
         Ok(updated > 0)
-    }
-
-    /// Unconditional terminal-state transition. Used when no race is possible
-    /// (e.g. job never reached 'running', or daemon-startup orphan recovery).
-    pub fn update_finished_direct(
-        &self,
-        id: &str,
-        status: Status,
-        exit_code: Option<i32>,
-    ) -> Result<()> {
-        self.conn.execute(
-            "UPDATE jobs SET status = ?1, finished_at = ?2, exit_code = ?3 WHERE id = ?4",
-            params![
-                status.as_str(),
-                chrono::Utc::now().to_rfc3339(),
-                exit_code,
-                id
-            ],
-        )?;
-        Ok(())
     }
 
     pub fn delete_old(
@@ -242,40 +222,54 @@ impl Database {
     }
 
     fn row_to_job(row: &rusqlite::Row) -> rusqlite::Result<Job> {
+        let status_raw = row.get::<_, String>("status")?;
+        let status = status_raw.parse::<Status>().map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                row.as_ref().column_index("status").unwrap_or(3),
+                rusqlite::types::Type::Text,
+                Box::new(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    error.to_string(),
+                )),
+            )
+        })?;
+
+        let parse_time = |value: Option<String>, column: &str| {
+            value
+                .map(|raw| {
+                    chrono::DateTime::parse_from_rfc3339(&raw)
+                        .map(|time| time.with_timezone(&chrono::Utc))
+                        .map_err(|error| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                row.as_ref().column_index(column).unwrap_or(0),
+                                rusqlite::types::Type::Text,
+                                Box::new(error),
+                            )
+                        })
+                })
+                .transpose()
+        };
+
         Ok(Job {
             id: row.get("id")?,
             name: row.get("name")?,
             command: row.get("command")?,
-            status: row
-                .get::<_, String>("status")?
-                .parse()
-                .unwrap_or(Status::Interrupted),
+            status,
             project: PathBuf::from(row.get::<_, String>("project")?),
             cwd: PathBuf::from(row.get::<_, String>("cwd")?),
             pid: row.get("pid")?,
             exit_code: row.get("exit_code")?,
-            created_at: {
-                let raw = row.get::<_, String>("created_at")?;
-                match chrono::DateTime::parse_from_rfc3339(&raw) {
-                    Ok(t) => t.with_timezone(&chrono::Utc),
-                    Err(e) => {
-                        warn!(
-                            "corrupt created_at '{}' on job {}: {e}; falling back to now",
-                            raw,
-                            row.get::<_, String>("id").unwrap_or_default()
-                        );
-                        chrono::Utc::now()
-                    }
-                }
-            },
-            started_at: row
-                .get::<_, Option<String>>("started_at")?
-                .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
-                .map(|t| t.with_timezone(&chrono::Utc)),
-            finished_at: row
-                .get::<_, Option<String>>("finished_at")?
-                .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
-                .map(|t| t.with_timezone(&chrono::Utc)),
+            created_at: chrono::DateTime::parse_from_rfc3339(&row.get::<_, String>("created_at")?)
+                .map(|time| time.with_timezone(&chrono::Utc))
+                .map_err(|error| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        row.as_ref().column_index("created_at").unwrap_or(8),
+                        rusqlite::types::Type::Text,
+                        Box::new(error),
+                    )
+                })?,
+            started_at: parse_time(row.get("started_at")?, "started_at")?,
+            finished_at: parse_time(row.get("finished_at")?, "finished_at")?,
             timeout_secs: row.get("timeout_secs")?,
             idempotency_key: row.get("idempotency_key")?,
         })
@@ -309,25 +303,33 @@ impl Database {
         Ok(count as usize)
     }
 
-    /// Resolve a job by ID or name.
-    /// For names, returns the most recent job with that name.
-    pub fn resolve(&self, id: &str) -> Result<Job> {
-        // Try by ID first
-        if let Some(job) = self.get(id)? {
+    /// Resolve a user selector without silently choosing an ambiguous ID.
+    /// Exact IDs win, followed by exact names (latest first), then unique IDs.
+    pub fn resolve(&self, selector: &str) -> Result<Job> {
+        if selector.is_empty() {
+            bail!(UserError::new("job selector cannot be empty"));
+        }
+
+        if let Some(job) = self.get(selector)? {
             return Ok(job);
         }
 
-        // Try by name - get most recent
-        let mut by_name = self.get_by_name(id)?;
-        if by_name.is_empty() {
-            bail!(UserError::new(format!(
-                "No job found with ID or name '{id}'"
-            )));
+        let mut by_name = self.get_by_name(selector)?;
+        if !by_name.is_empty() {
+            by_name.sort_by_key(|job| std::cmp::Reverse(job.created_at));
+            return Ok(by_name.into_iter().next().expect("non-empty name results"));
         }
 
-        // Sort by created_at desc (newest first) and return first
-        by_name.sort_by_key(|b| std::cmp::Reverse(b.created_at));
-        Ok(by_name.into_iter().next().unwrap())
+        let matches = self.get_prefix(selector)?;
+        match matches.as_slice() {
+            [] => bail!(UserError::new(format!(
+                "No job found with ID or name '{selector}'"
+            ))),
+            [job] => Ok(job.clone()),
+            _ => bail!(UserError::new(format!(
+                "Job selector '{selector}' is ambiguous; use a full ID"
+            ))),
+        }
     }
 
     pub fn generate_id(&self) -> Result<String> {
@@ -346,48 +348,14 @@ impl Database {
         bail!("Too many jobs - run `jb clean` to remove old jobs")
     }
 
-    /// Mark any Running/Pending jobs as Interrupted. Daemon-startup only — clients
-    /// must not call this, since a client running concurrently with the daemon
-    /// would clobber jobs the daemon is actively managing.
-    pub fn recover_orphans(&self) {
-        let running = match self.list(Some(Status::Running), None) {
-            Ok(jobs) => jobs,
-            Err(e) => {
-                warn!("Failed to list running jobs for orphan recovery: {e}");
-                return;
-            }
-        };
-        let pending = match self.list(Some(Status::Pending), None) {
-            Ok(jobs) => jobs,
-            Err(e) => {
-                warn!("Failed to list pending jobs for orphan recovery: {e}");
-                return;
-            }
-        };
-
-        // On daemon restart we have no child handles or RunningJob entries, so there's
-        // no way to reclaim these jobs even if the recorded PID still looks alive.
-        // PID reuse also makes is_process_alive unreliable. Mark all as Interrupted.
-        //
-        // Running jobs use update_finished (CAS on 'running' — safe since only daemon
-        // startup calls this). Pending jobs need a direct update since they don't match
-        // the 'running' CAS guard.
-        for job in running {
-            if let Err(e) = self.update_finished(&job.id, Status::Interrupted, None) {
-                warn!(
-                    "Failed to mark orphaned running job {} as interrupted: {e}",
-                    job.id
-                );
-            }
-        }
-        for job in pending {
-            if let Err(e) = self.update_finished_direct(&job.id, Status::Interrupted, None) {
-                warn!(
-                    "Failed to mark orphaned pending job {} as interrupted: {e}",
-                    job.id
-                );
-            }
-        }
+    /// Mark active rows as interrupted during daemon startup. This runs only
+    /// while the daemon singleton lock is held, before it admits any jobs.
+    pub fn recover_orphans(&self) -> Result<()> {
+        self.conn.execute(
+            "UPDATE jobs SET status = 'interrupted', finished_at = ?1, exit_code = NULL WHERE status IN ('pending', 'running')",
+            params![chrono::Utc::now().to_rfc3339()],
+        )?;
+        Ok(())
     }
 }
 
@@ -435,16 +403,27 @@ mod tests {
     }
 
     #[test]
-    fn test_get_by_prefix() {
+    fn test_resolve_unique_prefix() {
         let (db, _tmp) = test_db();
-        let job = create_test_job("xyz9", Status::Running);
-        db.insert(&job).unwrap();
+        db.insert(&create_test_job("xyz9", Status::Running))
+            .unwrap();
 
-        // Full ID works
-        assert!(db.get("xyz9").unwrap().is_some());
-        // Prefix works
-        assert!(db.get("xyz").unwrap().is_some());
-        assert!(db.get("xy").unwrap().is_some());
+        assert_eq!(db.resolve("xyz9").unwrap().id, "xyz9");
+        assert_eq!(db.resolve("xyz").unwrap().id, "xyz9");
+        assert_eq!(db.resolve("xy").unwrap().id, "xyz9");
+    }
+
+    #[test]
+    fn test_resolve_rejects_empty_and_ambiguous_prefixes() {
+        let (db, _tmp) = test_db();
+        db.insert(&create_test_job("abcd", Status::Completed))
+            .unwrap();
+        db.insert(&create_test_job("abce", Status::Completed))
+            .unwrap();
+
+        assert!(db.resolve("").is_err());
+        let error = db.resolve("abc").unwrap_err().to_string();
+        assert!(error.contains("ambiguous"), "error: {error}");
     }
 
     #[test]
@@ -538,23 +517,13 @@ mod tests {
     }
 
     #[test]
-    fn test_update_status() {
+    fn test_mark_running_is_cas() {
         let (db, _tmp) = test_db();
         db.insert(&create_test_job("abc1", Status::Pending))
             .unwrap();
 
-        db.update_status("abc1", Status::Running).unwrap();
-        let job = db.get("abc1").unwrap().unwrap();
-        assert_eq!(job.status, Status::Running);
-    }
-
-    #[test]
-    fn test_update_started() {
-        let (db, _tmp) = test_db();
-        db.insert(&create_test_job("abc1", Status::Pending))
-            .unwrap();
-
-        db.update_started("abc1", 12345).unwrap();
+        assert!(db.mark_running("abc1", 12345).unwrap());
+        assert!(!db.mark_running("abc1", 12346).unwrap());
         let job = db.get("abc1").unwrap().unwrap();
         assert_eq!(job.status, Status::Running);
         assert_eq!(job.pid, Some(12345));
@@ -562,17 +531,44 @@ mod tests {
     }
 
     #[test]
-    fn test_update_finished() {
+    fn test_finish_is_cas_and_terminal_only() {
         let (db, _tmp) = test_db();
         db.insert(&create_test_job("abc1", Status::Running))
             .unwrap();
 
-        db.update_finished("abc1", Status::Completed, Some(0))
-            .unwrap();
+        assert!(db.finish("abc1", Status::Completed, Some(0)).unwrap());
+        assert!(!db.finish("abc1", Status::Failed, Some(1)).unwrap());
         let job = db.get("abc1").unwrap().unwrap();
         assert_eq!(job.status, Status::Completed);
         assert_eq!(job.exit_code, Some(0));
         assert!(job.finished_at.is_some());
+    }
+
+    #[test]
+    fn test_recover_orphans_marks_active_rows_interrupted() {
+        let (db, _tmp) = test_db();
+        db.insert(&create_test_job("run1", Status::Running))
+            .unwrap();
+        db.insert(&create_test_job("pend", Status::Pending))
+            .unwrap();
+        db.recover_orphans().unwrap();
+
+        for id in ["run1", "pend"] {
+            let job = db.get(id).unwrap().unwrap();
+            assert_eq!(job.status, Status::Interrupted);
+            assert!(job.finished_at.is_some());
+        }
+    }
+
+    #[test]
+    fn test_corrupt_status_is_rejected() {
+        let (db, _tmp) = test_db();
+        db.insert(&create_test_job("abc1", Status::Completed))
+            .unwrap();
+        db.conn
+            .execute("UPDATE jobs SET status = 'future' WHERE id = 'abc1'", [])
+            .unwrap();
+        assert!(db.get("abc1").is_err());
     }
 
     #[test]

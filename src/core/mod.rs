@@ -11,31 +11,65 @@ pub use job::{Job, Status};
 pub use paths::Paths;
 pub use project::detect_project;
 
-/// Kill an entire process group.
-/// The PID is the process group leader (child was spawned with `process_group(0)`).
-#[cfg(unix)]
-pub fn kill_process_group(pid: u32, force: bool) {
-    use nix::sys::signal::{Signal, killpg};
-    use nix::unistd::Pid;
+/// Signal an entire process group.
+/// The PID is the process-group leader (the child is spawned with `process_group(0)`).
+pub fn kill_process_group(pid: u32, force: bool) -> anyhow::Result<()> {
+    #[cfg(unix)]
+    {
+        use nix::errno::Errno;
+        use nix::sys::signal::{Signal, killpg};
+        use nix::unistd::Pid;
 
-    // SAFETY: Never signal pid 0 - that would kill our own process group!
-    if pid == 0 {
-        return;
+        if pid == 0 {
+            anyhow::bail!("refusing to signal process group 0");
+        }
+
+        let signal = if force {
+            Signal::SIGKILL
+        } else {
+            Signal::SIGTERM
+        };
+        #[allow(clippy::cast_possible_wrap)]
+        let pid = Pid::from_raw(pid as i32);
+        match killpg(pid, signal) {
+            Ok(()) | Err(Errno::ESRCH) => Ok(()),
+            Err(e) => Err(e.into()),
+        }
     }
 
-    let signal = if force {
-        Signal::SIGKILL
-    } else {
-        Signal::SIGTERM
-    };
-
-    #[allow(clippy::cast_possible_wrap)]
-    let _ = killpg(Pid::from_raw(pid as i32), signal);
+    #[cfg(not(unix))]
+    {
+        let _ = (pid, force);
+        Ok(())
+    }
 }
 
-#[cfg(not(unix))]
-pub fn kill_process_group(_pid: u32, _force: bool) {
-    // No-op on non-Unix platforms
+/// Return whether a process group still exists.
+pub fn process_group_exists(pid: u32) -> anyhow::Result<bool> {
+    #[cfg(unix)]
+    {
+        use nix::errno::Errno;
+        use nix::sys::signal::killpg;
+        use nix::unistd::Pid;
+
+        if pid == 0 {
+            return Ok(false);
+        }
+
+        #[allow(clippy::cast_possible_wrap)]
+        let pid = Pid::from_raw(pid as i32);
+        match killpg(pid, None) {
+            Ok(()) => Ok(true),
+            Err(Errno::ESRCH) => Ok(false),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        Ok(false)
+    }
 }
 
 /// Parse a duration string like "30s", "5m", "1h", "7d" into seconds
@@ -54,7 +88,8 @@ pub fn parse_duration(s: &str) -> anyhow::Result<u64> {
     };
 
     let n: u64 = num.parse()?;
-    Ok(n * unit)
+    n.checked_mul(unit)
+        .ok_or_else(|| anyhow::anyhow!("duration is too large"))
 }
 
 #[cfg(test)]
@@ -101,5 +136,10 @@ mod tests {
     #[test]
     fn test_parse_duration_invalid_number() {
         assert!(parse_duration("abcs").is_err());
+    }
+
+    #[test]
+    fn test_parse_duration_overflow() {
+        assert!(parse_duration("18446744073709551615m").is_err());
     }
 }

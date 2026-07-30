@@ -1,14 +1,18 @@
 use crate::core::ipc::Response;
-use crate::core::{Job, Status, kill_process_group};
-use crate::daemon::state::{DaemonState, RunningJob};
+use crate::core::{Job, Status, kill_process_group, process_group_exists};
+use crate::daemon::state::{DaemonState, JobCommand, JobControl, StopReply};
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::fs::File;
-use tokio::process::Command;
-use tokio::sync::watch;
+use tokio::process::{Child, Command};
+use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, warn};
+
+const GRACEFUL_SHUTDOWN_SECS: u64 = 2;
+const GROUP_CHECK_INTERVAL_MS: u64 = 25;
+const GROUP_CHECK_ATTEMPTS: usize = 80;
 
 pub fn spawn_job(
     state: &Arc<DaemonState>,
@@ -19,268 +23,496 @@ pub fn spawn_job(
     timeout_secs: Option<u64>,
     idempotency_key: Option<String>,
 ) -> Response {
-    // Check idempotency key and name uniqueness, generate ID
-    let id = {
-        let db = state.db.lock().unwrap();
-
-        // Idempotency check
-        if let Some(ref key) = idempotency_key
-            && let Ok(Some(existing)) = db.get_by_idempotency_key(key)
-        {
-            return Response::Job(Box::new(existing));
-        }
-
-        // Name uniqueness check: can't have two running jobs with same name
-        if let Some(ref n) = name
-            && let Ok(Some(running)) = db.name_in_use(n)
-        {
-            return Response::UserError(format!(
-                "Name '{}' is in use by running job {}",
-                n,
-                running.short_id()
-            ));
-        }
-
-        match db.generate_id() {
-            Ok(id) => id,
-            Err(e) => return Response::Error(e.to_string()),
-        }
-    };
-
-    // Create job record
-    let mut job = Job::new(
-        id,
-        command.clone(),
-        PathBuf::from(&cwd),
-        PathBuf::from(&project),
-    );
-
-    if let Some(n) = name {
-        job = job.with_name(n);
-    }
-    if let Some(t) = timeout_secs {
-        job = job.with_timeout(t);
-    }
-    if let Some(k) = idempotency_key {
-        job = job.with_idempotency_key(k);
+    let _admission = state.admission_guard();
+    if !state.is_accepting() {
+        return Response::UserError("daemon is shutting down".to_string());
     }
 
-    // Insert into DB
-    {
-        let db = state.db.lock().unwrap();
-        if let Err(e) = db.insert(&job) {
-            return Response::Error(format!("Failed to create job: {e}"));
-        }
-    }
+    let job = {
+        let db = state.db.lock().expect("database lock poisoned");
 
-    let job_id = job.id.clone();
-    let state_clone = state.clone();
-
-    // Spawn the process; on failure mark the job as failed in the DB
-    tokio::spawn(async move {
-        if let Err(e) = run_job(&state_clone, job_id.clone(), command, cwd, timeout_secs).await {
-            error!("Job {} failed: {}", job_id, e);
-            let db = state_clone.db.lock().unwrap();
-            if let Ok(Some(job)) = db.get(&job_id)
-                && !job.status.is_terminal()
-            {
-                // If the job never reached 'running' (e.g. bad CWD), update directly.
-                // Pending jobs don't race with stop/interrupt since they aren't tracked.
-                let result = if job.status == Status::Pending {
-                    db.update_finished_direct(&job_id, Status::Failed, None)
-                        .map(|()| true)
-                } else {
-                    db.update_finished(&job_id, Status::Failed, None)
-                };
-                if let Err(db_err) = result {
-                    error!("Failed to mark job {} as failed: {}", job_id, db_err);
-                }
+        if let Some(key) = idempotency_key.as_deref() {
+            match db.get_by_idempotency_key(key) {
+                Ok(Some(existing)) => return Response::Job(Box::new(existing)),
+                Ok(None) => {}
+                Err(error) => return Response::Error(error.to_string()),
             }
         }
+
+        if let Some(job_name) = name.as_deref() {
+            match db.name_in_use(job_name) {
+                Ok(Some(active)) => {
+                    return Response::UserError(format!(
+                        "Name '{}' is in use by running job {}",
+                        job_name,
+                        active.short_id()
+                    ));
+                }
+                Ok(None) => {}
+                Err(error) => return Response::Error(error.to_string()),
+            }
+        }
+
+        let id = match db.generate_id() {
+            Ok(id) => id,
+            Err(error) => return Response::Error(error.to_string()),
+        };
+
+        let mut job = Job::new(
+            id,
+            command.clone(),
+            PathBuf::from(&cwd),
+            PathBuf::from(&project),
+        );
+        if let Some(job_name) = name {
+            job = job.with_name(job_name);
+        }
+        if let Some(timeout) = timeout_secs {
+            job = job.with_timeout(timeout);
+        }
+        if let Some(key) = idempotency_key {
+            job = job.with_idempotency_key(key);
+        }
+
+        if let Err(error) = db.insert(&job) {
+            return Response::Error(format!("Failed to create job: {error}"));
+        }
+        job
+    };
+
+    let job_id = job.id.clone();
+    let (command_tx, command_rx) = mpsc::channel(8);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let (start_tx, start_rx) = oneshot::channel();
+    let task_state = Arc::clone(state);
+    let finished_tx = state.finished_sender();
+    let task = tokio::spawn(async move {
+        if start_rx.await.is_err() {
+            return;
+        }
+        JobTask {
+            state: task_state,
+            job_id: job_id.clone(),
+            command,
+            cwd,
+            timeout_secs,
+            command_rx,
+            shutdown_rx,
+            finished_tx,
+        }
+        .run()
+        .await;
     });
 
-    // Return the job (still pending, will update to running shortly)
+    let registered = state.register_job(
+        job.id.clone(),
+        JobControl {
+            command_tx,
+            shutdown_tx,
+            start_tx: Some(start_tx),
+            join: Some(task),
+        },
+    );
+    if !registered || !state.start_job(&job.id) {
+        return Response::Error("daemon stopped accepting jobs".to_string());
+    }
+
     Response::Job(Box::new(job))
 }
 
-/// Time to wait for graceful shutdown before SIGKILL
-const GRACEFUL_SHUTDOWN_SECS: u64 = 2;
-
-#[allow(clippy::too_many_lines)]
-async fn run_job(
-    state: &Arc<DaemonState>,
+struct JobTask {
+    state: Arc<DaemonState>,
     job_id: String,
     command: String,
     cwd: String,
     timeout_secs: Option<u64>,
-) -> anyhow::Result<()> {
-    let log_path = state.paths.log_file(&job_id);
+    command_rx: mpsc::Receiver<JobCommand>,
+    shutdown_rx: tokio::sync::watch::Receiver<bool>,
+    finished_tx: mpsc::Sender<String>,
+}
 
-    // Create log file
+impl JobTask {
+    async fn run(self) {
+        let Self {
+            state,
+            job_id,
+            command,
+            cwd,
+            timeout_secs,
+            command_rx,
+            shutdown_rx,
+            finished_tx,
+        } = self;
+        let result = run_job_inner(
+            &state,
+            &job_id,
+            &command,
+            &cwd,
+            timeout_secs,
+            command_rx,
+            shutdown_rx,
+        )
+        .await;
+
+        if let Err(error) = result {
+            error!("Job {} failed: {}", job_id, error);
+            let finish_result = state.db.lock().expect("database lock poisoned").finish(
+                &job_id,
+                Status::Failed,
+                None,
+            );
+            if let Err(db_error) = finish_result {
+                error!("Failed to mark job {} as failed: {}", job_id, db_error);
+            }
+        }
+
+        if finished_tx.send(job_id).await.is_err() {
+            error!("Daemon stopped receiving job completion events");
+        }
+    }
+}
+
+async fn run_job_inner(
+    state: &Arc<DaemonState>,
+    job_id: &str,
+    command: &str,
+    cwd: &str,
+    timeout_secs: Option<u64>,
+    mut command_rx: mpsc::Receiver<JobCommand>,
+    shutdown_rx: tokio::sync::watch::Receiver<bool>,
+) -> anyhow::Result<()> {
+    let log_path = state.paths.log_file(job_id);
     let log_file = File::create(&log_path).await?;
+    state.paths.secure_file(&log_path)?;
     let log_file_std = log_file.into_std().await;
 
-    // Spawn process in new session (detached)
+    // A stop or shutdown can arrive while a pending job is waiting for its
+    // task to run. Do not create a child after shutdown has started.
+    if *shutdown_rx.borrow() {
+        return finish_without_child(state, job_id, JobCommand::Shutdown).await;
+    }
+    if let Ok(command) = command_rx.try_recv() {
+        return finish_without_child(state, job_id, command).await;
+    }
+
     let mut child = Command::new("sh")
         .arg("-c")
-        .arg(&command)
-        .current_dir(&cwd)
+        .arg(command)
+        .current_dir(cwd)
         .stdout(Stdio::from(log_file_std.try_clone()?))
         .stderr(Stdio::from(log_file_std))
-        .process_group(0) // Create new process group (setsid equivalent)
+        .process_group(0)
         .spawn()?;
 
-    let pid = child
-        .id()
-        .ok_or_else(|| anyhow::anyhow!("failed to get PID of spawned process"))?;
+    let Some(pid) = child.id() else {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        anyhow::bail!("failed to get PID of spawned process");
+    };
 
-    // Update DB with running status
-    {
-        let db = state.db.lock().unwrap();
-        db.update_started(&job_id, pid)?;
+    let claimed = state
+        .db
+        .lock()
+        .expect("database lock poisoned")
+        .mark_running(job_id, pid)?;
+    if !claimed {
+        terminate_child(
+            &mut child,
+            pid,
+            Status::Interrupted,
+            true,
+            &mut command_rx,
+            Vec::new(),
+        )
+        .await;
+        anyhow::bail!("job {job_id} was no longer pending when its process started");
     }
 
     info!("Job {} started with PID {}", job_id, pid);
+    let result = monitor_child(&mut child, pid, timeout_secs, command_rx, shutdown_rx).await;
 
-    let (stop_tx, mut stop_rx) = watch::channel(false);
+    let finish_error = state
+        .db
+        .lock()
+        .expect("database lock poisoned")
+        .finish(job_id, result.status, result.exit_code)
+        .err();
 
-    // Track running job
-    {
-        let mut running = state.running_jobs.lock().unwrap();
-        running.insert(job_id.clone(), RunningJob { pid, stop_tx });
+    for reply_sender in result.stop_replies {
+        let reply = match &finish_error {
+            Some(error) => StopReply::Failed(error.to_string()),
+            None => StopReply::Stopped,
+        };
+        let _ = reply_sender.send(reply);
     }
 
-    // Event-based monitoring with tokio::select!
-    // Note: We use changed() instead of wait_for() because wait_for() returns
-    // a non-Send guard that causes issues with tokio::spawn
-    let result = if let Some(timeout) = timeout_secs {
-        tokio::select! {
-            biased;
-
-            // Stop signal from stop_job or interrupt_running_jobs
-            // (changed() returns when value is updated; we only send true)
-            _ = stop_rx.changed() => {
-                JobResult::Stopped
-            }
-
-            // Timeout expired - escalate: SIGTERM → wait → SIGKILL
-            () = tokio::time::sleep(Duration::from_secs(timeout)) => {
-                warn!("Job {} timed out after {}s, sending SIGTERM", job_id, timeout);
-                kill_process_group(pid, false); // SIGTERM first
-
-                // Give process time to exit gracefully
-                tokio::select! {
-                    biased;
-                    _ = stop_rx.changed() => JobResult::Stopped,
-                    _ = child.wait() => JobResult::Timeout,
-                    () = tokio::time::sleep(Duration::from_secs(GRACEFUL_SHUTDOWN_SECS)) => {
-                        warn!("Job {} did not exit after SIGTERM, sending SIGKILL", job_id);
-                        kill_process_group(pid, true); // Force kill
-                        // Reap the child explicitly — relying on drop-time reaping
-                        // couples us to tokio internals.
-                        let _ = child.wait().await;
-                        JobResult::Timeout
-                    }
-                }
-            }
-
-            // Process exited normally
-            status = child.wait() => {
-                JobResult::Completed(status.ok())
-            }
-        }
-    } else {
-        // No timeout - just wait for exit or stop signal
-        tokio::select! {
-            biased;
-
-            _ = stop_rx.changed() => {
-                JobResult::Stopped
-            }
-
-            status = child.wait() => {
-                JobResult::Completed(status.ok())
-            }
-        }
-    };
-
-    // Remove from running jobs
-    {
-        let mut running = state.running_jobs.lock().unwrap();
-        running.remove(&job_id);
+    if let Some(error) = finish_error {
+        return Err(error);
     }
 
-    // Handle result
-    match result {
-        JobResult::Stopped => {
-            // stop_job already updated DB
-        }
-        JobResult::Timeout => {
-            let db = state.db.lock().unwrap();
-            if let Err(e) = db.update_finished(&job_id, Status::Timeout, None) {
-                error!(
-                    "Failed to update job {} status after timeout: {}",
-                    job_id, e
-                );
-            }
-            info!("Job {} timed out", job_id);
-        }
-        JobResult::Completed(exit_status) => {
-            let (status, exit_code) = match exit_status {
-                Some(es) if es.success() => (Status::Completed, es.code()),
-                Some(es) => (Status::Failed, es.code()),
-                None => (Status::Failed, None),
-            };
-
-            {
-                let db = state.db.lock().unwrap();
-                if let Err(e) = db.update_finished(&job_id, status, exit_code) {
-                    error!(
-                        "Failed to update job {} status after completion: {}",
-                        job_id, e
-                    );
-                }
-            }
-            info!("Job {} finished with status {:?}", job_id, status);
-        }
-    }
-
+    info!("Job {} finished with status {}", job_id, result.status);
     Ok(())
 }
 
-enum JobResult {
-    Completed(Option<std::process::ExitStatus>),
-    Stopped,
-    Timeout,
+async fn finish_without_child(
+    state: &Arc<DaemonState>,
+    job_id: &str,
+    command: JobCommand,
+) -> anyhow::Result<()> {
+    let (status, reply) = match command {
+        JobCommand::Stop { reply, .. } => (Status::Stopped, Some(reply)),
+        JobCommand::Shutdown => (Status::Interrupted, None),
+    };
+    let finished = state
+        .db
+        .lock()
+        .expect("database lock poisoned")
+        .finish(job_id, status, None)?;
+    if !finished {
+        anyhow::bail!("job {job_id} was already finished before cancellation");
+    }
+    if let Some(reply) = reply {
+        let _ = reply.send(StopReply::Stopped);
+    }
+    Ok(())
 }
 
-pub fn stop_job(state: &Arc<DaemonState>, job_id: &str, force: bool) -> Response {
-    // Get job info and signal stop
-    let job = {
-        let running = state.running_jobs.lock().unwrap();
-        running.get(job_id).map(|j| (j.pid, j.stop_tx.clone()))
+struct JobResult {
+    status: Status,
+    exit_code: Option<i32>,
+    stop_replies: Vec<oneshot::Sender<StopReply>>,
+}
+
+async fn monitor_child(
+    child: &mut Child,
+    pid: u32,
+    timeout_secs: Option<u64>,
+    mut command_rx: mpsc::Receiver<JobCommand>,
+    mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
+) -> JobResult {
+    if let Some(timeout) = timeout_secs {
+        let timer = tokio::time::sleep(Duration::from_secs(timeout));
+        tokio::pin!(timer);
+        tokio::select! {
+            biased;
+            command = command_rx.recv() => {
+                handle_command(command, child, pid, Status::Stopped, &mut command_rx).await
+            }
+            _ = shutdown_rx.changed() => {
+                handle_command(Some(JobCommand::Shutdown), child, pid, Status::Interrupted, &mut command_rx).await
+            }
+            status = child.wait() => natural_result(status, pid).await,
+            () = &mut timer => {
+                warn!("Job {} timed out after {}s", pid, timeout);
+                terminate_child(
+                    child,
+                    pid,
+                    Status::Timeout,
+                    false,
+                    &mut command_rx,
+                    Vec::new(),
+                )
+                .await
+            }
+        }
+    } else {
+        tokio::select! {
+            biased;
+            command = command_rx.recv() => {
+                handle_command(command, child, pid, Status::Stopped, &mut command_rx).await
+            }
+            _ = shutdown_rx.changed() => {
+                handle_command(Some(JobCommand::Shutdown), child, pid, Status::Interrupted, &mut command_rx).await
+            }
+            status = child.wait() => natural_result(status, pid).await,
+        }
+    }
+}
+
+async fn natural_result(result: std::io::Result<std::process::ExitStatus>, pid: u32) -> JobResult {
+    cleanup_orphaned_group(pid).await;
+    match result {
+        Ok(status) if status.success() => JobResult {
+            status: Status::Completed,
+            exit_code: status.code(),
+            stop_replies: Vec::new(),
+        },
+        Ok(status) => JobResult {
+            status: Status::Failed,
+            exit_code: status.code(),
+            stop_replies: Vec::new(),
+        },
+        Err(error) => {
+            error!("Failed waiting for child: {}", error);
+            JobResult {
+                status: Status::Failed,
+                exit_code: None,
+                stop_replies: Vec::new(),
+            }
+        }
+    }
+}
+
+async fn handle_command(
+    command: Option<JobCommand>,
+    child: &mut Child,
+    pid: u32,
+    default_status: Status,
+    command_rx: &mut mpsc::Receiver<JobCommand>,
+) -> JobResult {
+    let mut replies = Vec::new();
+    let (status, force) = match command {
+        Some(JobCommand::Stop { force, reply }) => {
+            replies.push(reply);
+            (default_status, force)
+        }
+        Some(JobCommand::Shutdown) => (Status::Interrupted, false),
+        None => (Status::Interrupted, true),
     };
 
-    let Some((pid, stop_tx)) = job else {
-        return Response::Error(format!("Job {job_id} is not running"));
-    };
+    terminate_child(child, pid, status, force, command_rx, replies).await
+}
 
-    // Signal the run_job task to stop (will break out of select!)
-    let _ = stop_tx.send(true);
+async fn terminate_child(
+    child: &mut Child,
+    pid: u32,
+    status: Status,
+    force: bool,
+    command_rx: &mut mpsc::Receiver<JobCommand>,
+    mut replies: Vec<oneshot::Sender<StopReply>>,
+) -> JobResult {
+    let mut force = force;
+    if !force && let Err(error) = kill_process_group(pid, false) {
+        warn!("Failed to send SIGTERM to job group {pid}: {error}");
+    }
 
-    // Kill the entire process group (not just the shell wrapper)
-    kill_process_group(pid, force);
-
-    {
-        let db = state.db.lock().unwrap();
-        if let Err(e) = db.update_finished(job_id, Status::Stopped, None) {
-            error!("Failed to update job {} status after stop: {}", job_id, e);
+    if !force {
+        let grace = tokio::time::sleep(Duration::from_secs(GRACEFUL_SHUTDOWN_SECS));
+        tokio::pin!(grace);
+        loop {
+            tokio::select! {
+                biased;
+                command = command_rx.recv() => match command {
+                    Some(JobCommand::Stop { force: true, reply }) => {
+                        replies.push(reply);
+                        force = true;
+                        break;
+                    }
+                    Some(JobCommand::Stop { reply, .. }) => replies.push(reply),
+                    Some(JobCommand::Shutdown) => {}
+                    None => {
+                        force = true;
+                        break;
+                    }
+                },
+                result = child.wait() => {
+                    return complete_termination(child, pid, status, result, replies).await;
+                }
+                () = &mut grace => {
+                    force = true;
+                    break;
+                }
+            }
         }
     }
 
-    info!("Job {} stopped", job_id);
+    if force && let Err(error) = kill_process_group(pid, true) {
+        warn!("Failed to send SIGKILL to job group {pid}: {error}");
+    }
 
-    Response::Ok
+    let result = child.wait().await;
+    complete_termination(child, pid, status, result, replies).await
+}
+
+async fn complete_termination(
+    _child: &mut Child,
+    pid: u32,
+    status: Status,
+    result: std::io::Result<std::process::ExitStatus>,
+    replies: Vec<oneshot::Sender<StopReply>>,
+) -> JobResult {
+    if let Err(error) = wait_for_group_gone(pid).await {
+        warn!("Process group {pid} was not confirmed gone: {error}");
+    }
+
+    JobResult {
+        status,
+        exit_code: result.ok().and_then(|status| status.code()),
+        stop_replies: replies,
+    }
+}
+
+async fn cleanup_orphaned_group(pid: u32) {
+    let exists = match process_group_exists(pid) {
+        Ok(exists) => exists,
+        Err(error) => {
+            warn!("Could not inspect process group {pid}: {error}");
+            return;
+        }
+    };
+    if !exists {
+        return;
+    }
+
+    warn!("Child exited while process group {pid} still had members");
+    if let Err(error) = kill_process_group(pid, false) {
+        warn!("Failed to send SIGTERM to orphaned group {pid}: {error}");
+    }
+    if wait_for_group_gone(pid).await.is_ok() {
+        return;
+    }
+
+    if let Err(error) = kill_process_group(pid, true) {
+        warn!("Failed to send SIGKILL to orphaned group {pid}: {error}");
+    }
+    if let Err(error) = wait_for_group_gone(pid).await {
+        warn!("Could not confirm orphaned process group {pid} is gone: {error}");
+    }
+}
+
+async fn wait_for_group_gone(pid: u32) -> anyhow::Result<()> {
+    for _ in 0..GROUP_CHECK_ATTEMPTS {
+        if !process_group_exists(pid)? {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(GROUP_CHECK_INTERVAL_MS)).await;
+    }
+    anyhow::bail!("process group {pid} still exists after termination")
+}
+
+pub async fn stop_job(state: &Arc<DaemonState>, job_id: &str, force: bool) -> Response {
+    let Some(command_tx) = state.command_sender(job_id) else {
+        return match state.get_job(job_id) {
+            Ok(Some(job)) if job.status.is_terminal() => {
+                Response::UserError(format!("Job {} is already {}", job.short_id(), job.status))
+            }
+            Ok(Some(_)) => Response::Error(format!("Job {job_id} is not managed by this daemon")),
+            Ok(None) => Response::Error(format!("Job not found: {job_id}")),
+            Err(error) => Response::Error(error.to_string()),
+        };
+    };
+
+    let (reply_tx, reply_rx) = oneshot::channel();
+    if let Err(error) = command_tx
+        .send(JobCommand::Stop {
+            force,
+            reply: reply_tx,
+        })
+        .await
+    {
+        return match state.get_job(job_id) {
+            Ok(Some(job)) if job.status.is_terminal() => {
+                Response::UserError(format!("Job {} is already {}", job.short_id(), job.status))
+            }
+            _ => Response::Error(format!("failed to request stop for {job_id}: {error}")),
+        };
+    }
+
+    match reply_rx.await {
+        Ok(StopReply::Stopped) => Response::Ok,
+        Ok(StopReply::Failed(error)) => Response::Error(error),
+        Err(_) => Response::Error(format!("stop task for {job_id} exited unexpectedly")),
+    }
 }
 
 pub async fn wait_for_job(
@@ -292,7 +524,6 @@ pub async fn wait_for_job(
     let timeout = timeout_secs.map(Duration::from_secs);
 
     loop {
-        // Check if job exists and its status
         match state.get_job(job_id) {
             Ok(Some(job)) => {
                 if job.status.is_terminal() {
@@ -300,17 +531,15 @@ pub async fn wait_for_job(
                 }
             }
             Ok(None) => return Response::Error(format!("Job not found: {job_id}")),
-            Err(e) => return Response::Error(e.to_string()),
+            Err(error) => return Response::Error(error.to_string()),
         }
 
-        // Check timeout
-        if let Some(t) = timeout
-            && start.elapsed() >= t
+        if let Some(timeout) = timeout
+            && start.elapsed() >= timeout
         {
             return Response::WaitTimeout;
         }
 
-        // Poll interval
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
@@ -333,7 +562,7 @@ mod tests {
     fn do_spawn(state: &Arc<DaemonState>, cmd: &str, tmp: &TempDir) -> String {
         let cwd = tmp.path().to_string_lossy().to_string();
         match spawn_job(state, cmd.into(), None, cwd.clone(), cwd, None, None) {
-            Response::Job(j) => j.id.clone(),
+            Response::Job(job) => job.id.clone(),
             other => panic!("expected Job response, got {other:?}"),
         }
     }
@@ -425,7 +654,7 @@ mod tests {
         let state = test_state(&tmp);
         let cwd = tmp.path().to_string_lossy().to_string();
 
-        let resp = spawn_job(
+        let response = spawn_job(
             &state,
             "echo hi".into(),
             None,
@@ -434,8 +663,8 @@ mod tests {
             None,
             None,
         );
-        let id = match resp {
-            Response::Job(j) => j.id,
+        let id = match response {
+            Response::Job(job) => job.id,
             other => panic!("expected Job, got {other:?}"),
         };
 
@@ -449,7 +678,7 @@ mod tests {
         let state = test_state(&tmp);
         let cwd = tmp.path().to_string_lossy().to_string();
 
-        let resp1 = spawn_job(
+        let response1 = spawn_job(
             &state,
             "echo 1".into(),
             None,
@@ -458,7 +687,7 @@ mod tests {
             None,
             Some("mykey".into()),
         );
-        let resp2 = spawn_job(
+        let response2 = spawn_job(
             &state,
             "echo 2".into(),
             None,
@@ -468,18 +697,15 @@ mod tests {
             Some("mykey".into()),
         );
 
-        let id1 = match resp1 {
-            Response::Job(j) => j.id,
+        let id1 = match response1 {
+            Response::Job(job) => job.id,
             _ => panic!("expected Job"),
         };
-        let id2 = match resp2 {
-            Response::Job(j) => j.id,
+        let id2 = match response2 {
+            Response::Job(job) => job.id,
             _ => panic!("expected Job"),
         };
-        assert_eq!(
-            id1, id2,
-            "second spawn with same key should return the original job"
-        );
+        assert_eq!(id1, id2);
     }
 
     #[tokio::test]
@@ -488,7 +714,7 @@ mod tests {
         let state = test_state(&tmp);
         let cwd = tmp.path().to_string_lossy().to_string();
 
-        let resp1 = spawn_job(
+        let response1 = spawn_job(
             &state,
             "sleep 5".into(),
             Some("myjob".into()),
@@ -497,12 +723,9 @@ mod tests {
             None,
             None,
         );
-        assert!(
-            matches!(resp1, Response::Job(_)),
-            "first spawn should succeed"
-        );
+        assert!(matches!(response1, Response::Job(_)));
 
-        let resp2 = spawn_job(
+        let response2 = spawn_job(
             &state,
             "echo hi".into(),
             Some("myjob".into()),
@@ -511,72 +734,57 @@ mod tests {
             None,
             None,
         );
-        assert!(
-            matches!(resp2, Response::UserError(_)),
-            "duplicate name should return UserError, got {resp2:?}"
-        );
+        assert!(matches!(response2, Response::UserError(_)));
     }
 
     #[tokio::test]
-    async fn test_stop_job_sets_stopped_status() {
+    async fn test_stop_job_waits_for_term_ignoring_process() {
+        let tmp = TempDir::new().unwrap();
+        let state = test_state(&tmp);
+        let id = do_spawn(&state, "trap '' TERM; sleep 60", &tmp);
+
+        for _ in 0..100 {
+            if state.get_job(&id).unwrap().unwrap().status == Status::Running {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        let response = stop_job(&state, &id, false).await;
+        assert!(matches!(response, Response::Ok));
+        assert_eq!(poll_terminal(&state, &id).await, Status::Stopped);
+    }
+
+    #[tokio::test]
+    async fn test_stop_pending_job_is_owned_by_daemon() {
         let tmp = TempDir::new().unwrap();
         let state = test_state(&tmp);
         let id = do_spawn(&state, "sleep 60", &tmp);
 
-        for _ in 0..100 {
-            if state.running_count() > 0 {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
-        }
-        assert!(state.running_count() > 0, "job should be running by now");
-
-        let resp = stop_job(&state, &id, true);
-        assert!(
-            matches!(resp, Response::Ok),
-            "stop should succeed, got {resp:?}"
-        );
-
-        let status = poll_terminal(&state, &id).await;
-        assert_eq!(status, Status::Stopped);
+        let response = stop_job(&state, &id, true).await;
+        assert!(matches!(response, Response::Ok));
+        assert_eq!(poll_terminal(&state, &id).await, Status::Stopped);
     }
 
     #[tokio::test]
-    async fn test_stop_nonexistent_job_returns_error() {
-        let tmp = TempDir::new().unwrap();
-        let state = test_state(&tmp);
-
-        let resp = stop_job(&state, "zzzz", false);
-        assert!(
-            matches!(resp, Response::Error(_)),
-            "stopping missing job should error"
-        );
-    }
-
-    #[tokio::test]
-    async fn test_job_with_name_stored_correctly() {
+    async fn test_timeout_marks_timeout() {
         let tmp = TempDir::new().unwrap();
         let state = test_state(&tmp);
         let cwd = tmp.path().to_string_lossy().to_string();
-
-        let resp = spawn_job(
+        let response = spawn_job(
             &state,
-            "true".into(),
-            Some("named-job".into()),
+            "sleep 60".into(),
+            None,
             cwd.clone(),
             cwd,
-            None,
+            Some(1),
             None,
         );
-        let id = match resp {
-            Response::Job(j) => j.id,
-            _ => panic!(),
+        let id = match response {
+            Response::Job(job) => job.id,
+            _ => panic!("expected Job"),
         };
 
-        poll_terminal(&state, &id).await;
-
-        let db = state.db.lock().unwrap();
-        let job = db.get(&id).unwrap().unwrap();
-        assert_eq!(job.name.as_deref(), Some("named-job"));
+        assert_eq!(poll_terminal(&state, &id).await, Status::Timeout);
     }
 }

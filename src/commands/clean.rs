@@ -35,7 +35,7 @@ fn delete_jobs(
         && !s.is_terminal()
     {
         anyhow::bail!(UserError::new(format!(
-            "cannot clean jobs with status '{s}': only terminal statuses allowed (completed, failed, stopped, interrupted)"
+            "cannot clean jobs with status '{s}': only terminal statuses allowed (completed, failed, stopped, interrupted, timeout)"
         )));
     }
 

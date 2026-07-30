@@ -4,8 +4,6 @@ use colored::Colorize;
 use std::io::{BufRead, BufReader, IsTerminal, Read, Seek, SeekFrom, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 type WriterFn = Box<dyn FnOnce(&mut dyn Write) -> Result<()>>;
@@ -14,7 +12,7 @@ fn should_colorize() -> bool {
     std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
 }
 
-pub async fn execute(id: &str, tail: Option<usize>, follow: bool, pager: bool) -> Result<()> {
+pub async fn execute(id: &str, tail: Option<usize>, follow: bool, pager: bool) -> Result<i32> {
     let paths = Paths::new()?;
     let db = Database::open(&paths)?;
 
@@ -28,7 +26,7 @@ pub async fn execute(id: &str, tail: Option<usize>, follow: bool, pager: bool) -
     // Non-follow mode: read existing content
     if !log_path.exists() {
         println!("No output yet");
-        return Ok(());
+        return Ok(0);
     }
 
     let colorize = should_colorize();
@@ -54,7 +52,7 @@ pub async fn execute(id: &str, tail: Option<usize>, follow: bool, pager: bool) -
         }
     }
 
-    Ok(())
+    Ok(0)
 }
 
 fn colorize_line(line: &str) -> String {
@@ -199,37 +197,29 @@ fn tail_last_n_lines_to_writer(
     Ok(())
 }
 
-async fn follow_logs(db: &Database, _paths: &Paths, job_id: &str, log_path: &Path) -> Result<()> {
+async fn follow_logs(db: &Database, _paths: &Paths, job_id: &str, log_path: &Path) -> Result<i32> {
     let colorize = should_colorize();
 
-    // Set up Ctrl+C handler - on interrupt, just exit cleanly (job continues)
-    let interrupted = Arc::new(AtomicBool::new(false));
-    let int_clone = Arc::clone(&interrupted);
-    ctrlc_handler(move || {
-        int_clone.store(true, Ordering::SeqCst);
-    });
+    let ctrl_c = tokio::signal::ctrl_c();
+    tokio::pin!(ctrl_c);
 
     // Wait for log file to exist (job might be pending)
     while !log_path.exists() {
-        if interrupted.load(Ordering::SeqCst) {
-            return Ok(());
-        }
-
         // Check if job still exists and is not terminal
         if let Some(job) = db.get(job_id)? {
             if job.status.is_terminal() {
-                // Job finished before creating output
+                // Job finished before creating output.
                 eprintln!("Job finished with no output");
-                if let Some(code) = job.exit_code {
-                    std::process::exit(code);
-                }
-                return Ok(());
+                return Ok(job.status.cli_exit_code(job.exit_code));
             }
         } else {
             anyhow::bail!("Job not found");
         }
 
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::select! {
+            _ = &mut ctrl_c => return Ok(130),
+            () = tokio::time::sleep(Duration::from_millis(100)) => {}
+        }
     }
 
     let mut file = std::fs::File::open(log_path)?;
@@ -238,10 +228,6 @@ async fn follow_logs(db: &Database, _paths: &Paths, job_id: &str, log_path: &Pat
     let mut line_buf = String::new();
 
     loop {
-        if interrupted.load(Ordering::SeqCst) {
-            return Ok(());
-        }
-
         // Read new content from current position
         file.seek(SeekFrom::Start(position))?;
         let bytes_read = file.read(&mut buf)?;
@@ -295,53 +281,18 @@ async fn follow_logs(db: &Database, _paths: &Paths, job_id: &str, log_path: &Pat
                 }
                 std::io::stdout().flush()?;
 
-                // Exit with job's exit code
-                if let Some(code) = job.exit_code {
-                    std::process::exit(code);
-                }
-                return Ok(());
+                // Return the terminal outcome to main, which owns process exit.
+                return Ok(job.status.cli_exit_code(job.exit_code));
             }
         } else {
             anyhow::bail!("Job disappeared from database");
         }
 
         // Small sleep before next poll
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-}
-
-/// Simple Ctrl+C handler without adding ctrlc dependency
-fn ctrlc_handler<F: Fn() + Send + Sync + 'static>(handler: F) {
-    #[cfg(unix)]
-    {
-        use nix::sys::signal::{SaFlags, SigAction, SigHandler, SigSet, Signal, sigaction};
-
-        static HANDLER: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> =
-            std::sync::OnceLock::new();
-
-        extern "C" fn signal_handler(_: i32) {
-            if let Some(h) = HANDLER.get() {
-                h();
-            }
+        tokio::select! {
+            _ = &mut ctrl_c => return Ok(130),
+            () = tokio::time::sleep(Duration::from_millis(100)) => {}
         }
-
-        let _ = HANDLER.set(Box::new(handler)).inspect_err(|_| {
-            tracing::debug!("ctrlc_handler already registered; ignoring duplicate");
-        });
-        let action = SigAction::new(
-            SigHandler::Handler(signal_handler),
-            SaFlags::empty(),
-            SigSet::empty(),
-        );
-        unsafe {
-            let _ = sigaction(Signal::SIGINT, &action);
-        }
-    }
-
-    #[cfg(not(unix))]
-    {
-        // On non-Unix, just ignore - Ctrl+C will terminate the process
-        let _ = handler;
     }
 }
 

@@ -52,22 +52,42 @@ fn show_job_status(db: &Database, paths: &Paths, id: &str, json: bool) -> Result
     Ok(())
 }
 
+fn daemon_is_reachable(paths: &Paths) -> bool {
+    #[cfg(unix)]
+    {
+        std::os::unix::net::UnixStream::connect(paths.socket()).is_ok()
+    }
+
+    #[cfg(not(unix))]
+    {
+        paths.socket().exists()
+    }
+}
+
 fn show_system_status(db: &Database, paths: &Paths, json: bool) -> Result<()> {
     // Use COUNT(*) queries instead of loading all jobs into memory
+    let pending = db.count(Some(Status::Pending))?;
     let running = db.count(Some(Status::Running))?;
     let completed = db.count(Some(Status::Completed))?;
     let failed = db.count(Some(Status::Failed))?;
+    let stopped = db.count(Some(Status::Stopped))?;
+    let interrupted = db.count(Some(Status::Interrupted))?;
+    let timeout = db.count(Some(Status::Timeout))?;
     let total = db.count(None)?;
 
-    let daemon_running = paths.socket().exists();
+    let daemon_running = daemon_is_reachable(paths);
 
     if json {
         let status = serde_json::json!({
             "daemon": daemon_running,
             "jobs": {
+                "pending": pending,
                 "running": running,
                 "completed": completed,
                 "failed": failed,
+                "stopped": stopped,
+                "interrupted": interrupted,
+                "timeout": timeout,
                 "total": total
             }
         });
@@ -80,8 +100,8 @@ fn show_system_status(db: &Database, paths: &Paths, json: bool) -> Result<()> {
         if daemon_running { "running" } else { "stopped" }
     );
     println!(
-        "Jobs:     {} running, {} completed, {} failed ({} total)",
-        running, completed, failed, total
+        "Jobs:     {} pending, {} running, {} completed, {} failed, {} stopped, {} interrupted, {} timeout ({} total)",
+        pending, running, completed, failed, stopped, interrupted, timeout, total
     );
 
     Ok(())

@@ -36,6 +36,17 @@ impl Status {
         )
     }
 
+    /// Map a persisted job outcome to the command exit status used by automation.
+    #[must_use]
+    pub fn cli_exit_code(self, recorded_exit_code: Option<i32>) -> i32 {
+        match self {
+            Self::Completed => 0,
+            Self::Failed => recorded_exit_code.filter(|code| *code != 0).unwrap_or(1),
+            Self::Timeout => 124,
+            Self::Stopped | Self::Interrupted | Self::Pending | Self::Running => 1,
+        }
+    }
+
     /// String form of every terminal status. Single source of truth for SQL IN clauses.
     #[must_use]
     pub fn terminal_strs() -> &'static [&'static str] {
@@ -139,6 +150,7 @@ mod tests {
         assert_eq!(Status::Failed.as_str(), "failed");
         assert_eq!(Status::Stopped.as_str(), "stopped");
         assert_eq!(Status::Interrupted.as_str(), "interrupted");
+        assert_eq!(Status::Timeout.as_str(), "timeout");
     }
 
     #[test]
@@ -149,6 +161,17 @@ mod tests {
         assert!(Status::Failed.is_terminal());
         assert!(Status::Stopped.is_terminal());
         assert!(Status::Interrupted.is_terminal());
+        assert!(Status::Timeout.is_terminal());
+    }
+
+    #[test]
+    fn test_cli_exit_codes() {
+        assert_eq!(Status::Completed.cli_exit_code(Some(0)), 0);
+        assert_eq!(Status::Failed.cli_exit_code(Some(7)), 7);
+        assert_eq!(Status::Failed.cli_exit_code(None), 1);
+        assert_eq!(Status::Stopped.cli_exit_code(None), 1);
+        assert_eq!(Status::Interrupted.cli_exit_code(None), 1);
+        assert_eq!(Status::Timeout.cli_exit_code(None), 124);
     }
 
     #[test]
