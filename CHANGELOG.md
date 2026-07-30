@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.0.17] - 2026-07-30
+
 ### Changed
 
 - Job lifecycle ownership now lives in one daemon task per job. Stop and
