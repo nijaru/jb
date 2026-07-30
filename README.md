@@ -52,7 +52,7 @@ Exit: 0
 | `jb logs <id> --follow` | Stream output until done |
 | `jb logs <id> --pager`  | View in pager (less -R)  |
 | `jb status <id>`        | Job details              |
-| `jb stop <id>`          | Stop job                 |
+| `jb stop <id>`          | Stop job (TERM, then KILL after 2s) |
 | `jb wait <id>`          | Block until done         |
 | `jb retry <id>`         | Re-run job               |
 | `jb clean`              | Remove old jobs          |
@@ -65,8 +65,13 @@ Exit: 0
 - Shell completions (bash, zsh, fish)
 - JSON output (`--json`)
 - Survives terminal disconnect
-- Auto-starts daemon
+- Auto-starts one daemon per user
+- Uses private state and log files
+- Rejects ambiguous job selectors instead of guessing
+- `jb run --wait` and `jb wait` return the job outcome: 0 for success, the recorded failure code for failed jobs, 124 for timeout, and 1 for stopped/interrupted jobs
 - Respects `NO_COLOR` environment variable
+
+Job IDs may be abbreviated only when the prefix matches one job. Exact names resolve to the most recent job with that name; empty or ambiguous selectors are errors.
 
 ## vs nohup
 

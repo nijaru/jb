@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Job lifecycle ownership now lives in one daemon task per job. Stop and
+  shutdown wait for process-group termination and child reaping before
+  publishing terminal state.
+- Daemon startup uses an advisory singleton lock and performs stale-socket
+  cleanup only after acquiring it; shutdown drains IPC handlers and job tasks.
+- Private state directories and files are explicitly owner-only on Unix.
+- Job selectors reject empty values and ambiguous prefixes instead of silently
+  choosing a job.
+- `run --wait`, `wait`, and `logs --follow` return meaningful exit codes for
+  failed, timed-out, stopped, and interrupted jobs.
+
+### Tests
+
+- Added subprocess coverage for concurrent daemon startup, stop escalation,
+  outcome exit codes, and state-file permissions.
+
 ## [0.0.16] - 2026-07-02
 
 ### Fixed
